@@ -1,0 +1,9 @@
+{
+  "mode": "simulasi",
+  "host": "192.168.1.201",
+  "port": 80,
+  "com_key": 0,
+  "timeout": 5,
+  "jendela_detik": 30,
+  "batas_tunggu_detik": 20
+}

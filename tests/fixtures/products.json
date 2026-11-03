@@ -1,0 +1,65 @@
+{
+  "P001": {
+    "id": "P001",
+    "name": "Beras 5kg",
+    "price": 65000.0,
+    "stock": 10,
+    "category": "Needs"
+  },
+  "P002": {
+    "id": "P002",
+    "name": "Minyak Goreng 1L",
+    "price": 18000.0,
+    "stock": 30,
+    "category": "Needs"
+  },
+  "P003": {
+    "id": "P003",
+    "name": "Telur Ayam 1kg",
+    "price": 30000.0,
+    "stock": 25,
+    "category": "Needs"
+  },
+  "P004": {
+    "id": "P004",
+    "name": "Sabun Mandi",
+    "price": 5000.0,
+    "stock": 50,
+    "category": "Needs"
+  },
+  "P005": {
+    "id": "P005",
+    "name": "Kopi Sachet",
+    "price": 2000.0,
+    "stock": 100,
+    "category": "Wants"
+  },
+  "P006": {
+    "id": "P006",
+    "name": "Cokelat Premium",
+    "price": 25000.0,
+    "stock": 15,
+    "category": "Wants"
+  },
+  "P007": {
+    "id": "P007",
+    "name": "Headset Gaming",
+    "price": 350000.0,
+    "stock": 5,
+    "category": "Wants"
+  },
+  "P008": {
+    "id": "P008",
+    "name": "Buku Tulis",
+    "price": 8000.0,
+    "stock": 40,
+    "category": "Needs"
+  },
+  "P009": {
+    "id": "P009",
+    "name": "Boba Premium",
+    "price": 22000.0,
+    "stock": 0,
+    "category": "Wants"
+  }
+}

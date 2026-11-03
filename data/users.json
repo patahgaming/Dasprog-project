@@ -1,0 +1,110 @@
+{
+  "admin": {
+    "username": "admin",
+    "pin_hash": "09cc8b29be2dbdcef23f37ba045fd9eddbd9900473260cb72651e4e62715eba4",
+    "salt": "0123456789abcdef",
+    "balance": 0.0,
+    "daily_limit": 0.0,
+    "role": "admin",
+    "is_locked": false,
+    "failed_attempts": 0,
+    "finger_id": "",
+    "transactions": []
+  },
+  "budi": {
+    "username": "budi",
+    "pin_hash": "bb450a3c64ecfb7a95193d97d4a336642e2e4fbfa00c60a60d7a99bca316815d",
+    "salt": "1111111111111111",
+    "balance": 500000.0,
+    "daily_limit": 500000.0,
+    "role": "customer",
+    "is_locked": false,
+    "failed_attempts": 1,
+    "finger_id": "1001",
+    "transactions": [
+      {
+        "id": "TRX-20261020101500",
+        "date": "2026-10-20T10:15:00",
+        "total": 14000.0,
+        "risk_score": 0,
+        "items": [
+          {
+            "id": "P005",
+            "name": "Kopi Sachet",
+            "price": 2000.0,
+            "qty": 2
+          },
+          {
+            "id": "P004",
+            "name": "Sabun Mandi",
+            "price": 5000.0,
+            "qty": 2
+          }
+        ]
+      }
+    ]
+  },
+  "siti": {
+    "username": "siti",
+    "pin_hash": "5e076e68c9f461be09dd247d42977751e16ba976cbf14f3e608db566346014b3",
+    "salt": "2222222222222222",
+    "balance": 150000.0,
+    "daily_limit": 300000.0,
+    "role": "customer",
+    "is_locked": false,
+    "failed_attempts": 0,
+    "finger_id": "1002",
+    "transactions": []
+  },
+  "andi": {
+    "username": "andi",
+    "pin_hash": "70e9d9295c4d6dcb974ef35c51909ae71ba00430917f57d264d0951b9524fca5",
+    "salt": "3333333333333333",
+    "balance": 50000.0,
+    "daily_limit": 200000.0,
+    "role": "customer",
+    "is_locked": true,
+    "failed_attempts": 3,
+    "finger_id": "1003",
+    "transactions": []
+  },
+  "NaNas": {
+    "username": "NaNas",
+    "pin_hash": "bf001674c7189fe584357a400bc0474a1957bc00ca8d70f1beb70454a97dba3a",
+    "salt": "aae73377dcd4c5f9",
+    "balance": 2.2222222222222222e+23,
+    "daily_limit": 500000.0,
+    "role": "customer",
+    "is_locked": false,
+    "failed_attempts": 0,
+    "finger_id": "",
+    "transactions": []
+  },
+  "Prabu": {
+    "username": "Prabu",
+    "pin_hash": "b3e7b5bc0cb9c52ee7bfd5602b12b819de7142f215c54eb036e23f0a2f991c7b",
+    "salt": "2341cbc813b03c2b",
+    "balance": 999350000.0,
+    "daily_limit": 500000.0,
+    "role": "customer",
+    "is_locked": false,
+    "failed_attempts": 0,
+    "finger_id": "11733",
+    "transactions": [
+      {
+        "id": "TRX-20261104000037",
+        "date": "2026-11-04T00:00:37",
+        "total": 650000.0,
+        "risk_score": 3,
+        "items": [
+          {
+            "id": "P001",
+            "name": "Beras 5kg",
+            "price": 65000.0,
+            "qty": 10
+          }
+        ]
+      }
+    ]
+  }
+}

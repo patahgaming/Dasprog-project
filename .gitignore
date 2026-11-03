@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+
+# Environment / kredensial (JANGAN commit .env berisi data asli)
+.env
+.env.*
+!.env.example
+
+# Runtime data yang dibuat saat aplikasi dipakai
+data/finger_state.json
+
+# Artefak test
+tests/_tmp/
+tests/_*.log
+_verif_lead.log
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

@@ -1,0 +1,74 @@
+[
+  {
+    "time": "2026-10-20T09:00:00",
+    "username": "admin",
+    "action": "INIT_DATA",
+    "detail": "Data awal PayGuard dibuat"
+  },
+  {
+    "time": "2026-10-20T10:15:00",
+    "username": "budi",
+    "action": "CHECKOUT_SUCCESS_RP_14000",
+    "detail": "TRX-20261020101500"
+  },
+  {
+    "time": "2026-10-27T12:17:41",
+    "username": "NaNas",
+    "action": "REGISTER",
+    "detail": "akun baru"
+  },
+  {
+    "time": "2026-10-27T12:17:56",
+    "username": "NaNas",
+    "action": "LOGIN_SUCCESS",
+    "detail": ""
+  },
+  {
+    "time": "2026-10-27T12:18:29",
+    "username": "NaNas",
+    "action": "TOPUP",
+    "detail": "1"
+  },
+  {
+    "time": "2026-10-27T12:18:51",
+    "username": "NaNas",
+    "action": "TOPUP",
+    "detail": "1"
+  },
+  {
+    "time": "2026-11-03T23:30:19",
+    "username": "Prabu",
+    "action": "REGISTER",
+    "detail": "akun baru"
+  },
+  {
+    "time": "2026-11-03T23:30:19",
+    "username": "admin",
+    "action": "FINGER_ENROLL",
+    "detail": "Prabu:11733"
+  },
+  {
+    "time": "2026-11-03T23:30:19",
+    "username": "Prabu",
+    "action": "LOGIN_SUCCESS",
+    "detail": ""
+  },
+  {
+    "time": "2026-11-03T23:32:09",
+    "username": "Prabu",
+    "action": "TOPUP",
+    "detail": "1000000000"
+  },
+  {
+    "time": "2026-11-03T23:59:59",
+    "username": "Prabu",
+    "action": "HOLD_CART",
+    "detail": "HOLD-20261103235959:650000.0"
+  },
+  {
+    "time": "2026-11-04T00:00:37",
+    "username": "Prabu",
+    "action": "CHECKOUT_FINGER_RP_650000",
+    "detail": "TRX-20261104000037"
+  }
+]
