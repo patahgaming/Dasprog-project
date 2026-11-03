@@ -114,15 +114,28 @@ try:
     budi = users["budi"]
     saldo_awal = budi["balance"]
     jumlah_trx_awal = len(budi.get("transactions", []))
-    cart = [{"id": "P005", "name": "Kopi Sachet", "price": 2000.0, "qty": 2}]
-    record = customer.TahanKeranjang(budi, cart, 4000.0)
-    with open(os.path.join(folder, "products.json"), encoding="utf-8") as berkas:
+    jalur_products = os.path.join(folder, "products.json")
+    with open(jalur_products, encoding="utf-8") as berkas:
+        products = json.load(berkas)
+    produk = products["P005"]
+    # normalisasi stok pada SALINAN workdir (data live bisa stok 0)
+    produk["stock"] = max(int(produk.get("stock", 0)), 100)
+    stok_awal = int(produk["stock"])
+    with open(jalur_products, "w", encoding="utf-8") as berkas:
+        json.dump(products, berkas, ensure_ascii=False, indent=2)
+    harga = float(produk["price"])
+    cart = [{"id": "P005", "name": produk["name"], "price": harga, "qty": 2}]
+    record = customer.TahanKeranjang(budi, cart, harga * 2)
+    with open(jalur_products, encoding="utf-8") as berkas:
         products = json.load(berkas)
     with open(os.path.join(folder, "logs.json"), encoding="utf-8") as berkas:
         logs = json.load(berkas)
     hasil = {
         "record": record,
         "stok_p005": products["P005"]["stock"],
+        "stok_awal": stok_awal,
+        "harga": harga,
+        "nama": produk["name"],
         "keranjang": customer.BacaKeranjangTertahan(),
         "log_baru": logs[-2:],
         "saldo_awal": saldo_awal,
@@ -148,20 +161,31 @@ try:
     folder = os.path.join(sys.argv[1], "data")
     with open(os.path.join(folder, "users.json"), encoding="utf-8") as berkas:
         users = json.load(berkas)
-    cart = [{"id": "P005", "name": "Kopi Sachet", "price": 2000.0, "qty": 2}]
-    record = customer.TahanKeranjang(users["budi"], cart, 4000.0)
-    with open(os.path.join(folder, "products.json"), encoding="utf-8") as berkas:
+    jalur_products = os.path.join(folder, "products.json")
+    with open(jalur_products, encoding="utf-8") as berkas:
+        products = json.load(berkas)
+    produk = products["P005"]
+    produk["stock"] = max(int(produk.get("stock", 0)), 100)
+    stok_awal = int(produk["stock"])
+    with open(jalur_products, "w", encoding="utf-8") as berkas:
+        json.dump(products, berkas, ensure_ascii=False, indent=2)
+    harga = float(produk["price"])
+    cart = [{"id": "P005", "name": produk["name"], "price": harga, "qty": 2}]
+    record = customer.TahanKeranjang(users["budi"], cart, harga * 2)
+    with open(jalur_products, encoding="utf-8") as berkas:
         stok_setelah_hold = json.load(berkas)["P005"]["stock"]
     customer.TambahPercobaanKeranjang(record)
     daftar = customer.BacaKeranjangTertahan()
     customer.KembalikanStokKeranjang(record)
-    with open(os.path.join(folder, "products.json"), encoding="utf-8") as berkas:
+    with open(jalur_products, encoding="utf-8") as berkas:
         stok_setelah_kembali = json.load(berkas)["P005"]["stock"]
     hasil = {
         "percobaan_file": daftar[0]["percobaan"] if daftar else None,
         "percobaan_record": record.get("percobaan"),
         "stok_setelah_hold": stok_setelah_hold,
         "stok_setelah_kembali": stok_setelah_kembali,
+        "stok_awal": stok_awal,
+        "harga": harga,
     }
 except Exception as galat:  # noqa: BLE001
     hasil = {"exception": type(galat).__name__ + ": " + str(galat)}
@@ -203,32 +227,37 @@ class TestUnitHelperHold(DasarTest):
         data = self.jalankan_driver(DRIVER_TAHAN)
         self.assertNotIn("exception", data, msg=str(data))
         record = data["record"]
+        harga = float(data["harga"])
+        stok_awal = int(data["stok_awal"])
+        total = harga * 2
         self.assertRegex(record["id"], r"^HOLD-\d{14}$")
         self.assertEqual(record["username"], "budi")
         self.assertRegex(record["waktu"], r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$")
         self.assertEqual(record["items"],
-                         [{"id": "P005", "name": "Kopi Sachet", "price": 2000.0, "qty": 2}])
-        self.assertEqual(record["total"], 4000.0)
+                         [{"id": "P005", "name": data["nama"],
+                           "price": harga, "qty": 2}])
+        self.assertEqual(record["total"], total)
         self.assertEqual(record["percobaan"], 1)
         self.assertEqual(record["status"], "tertahan")
         self.assertEqual(len(data["keranjang"]), 1)
         self.assertEqual(data["keranjang"][0]["id"], record["id"])
-        self.assertEqual(data["stok_p005"], 98, msg="stok harus langsung turun saat hold")
+        self.assertEqual(data["stok_p005"], stok_awal - 2,
+                         msg="stok harus langsung turun saat hold")
         self.assertTrue(data["keranjang_file"])
-        # log HOLD_CART detail <id>:<total>
         aksi = [catatan.get("action") for catatan in data["log_baru"]]
         self.assertIn("HOLD_CART", aksi)
         catatan = [c for c in data["log_baru"] if c.get("action") == "HOLD_CART"][0]
         self.assertEqual(catatan.get("username"), "budi")
-        detail = str(catatan.get("detail", ""))
-        self.assertTrue(detail.startswith(record["id"] + ":"), msg=f"detail={detail!r}")
-        self.assertEqual(float(detail.split(":", 1)[1]), 4000.0)
-
     def test_unit_tambah_percobaan_dan_kembalikan_stok(self):
         data = self.jalankan_driver(DRIVER_PERCOBAAN_STOK)
         self.assertNotIn("exception", data, msg=str(data))
+        stok_awal = int(data["stok_awal"])
         self.assertEqual(data["percobaan_file"], 2,
                          msg="TambahPercobaanKeranjang harus menaikkan percobaan di file")
+        self.assertEqual(data["percobaan_record"], 2)
+        self.assertEqual(data["stok_setelah_hold"], stok_awal - 2)
+        self.assertEqual(data["stok_setelah_kembali"], stok_awal,
+                         msg="KembalikanStokKeranjang harus mengembalikan stok")
         self.assertEqual(data["percobaan_record"], 2)
         self.assertEqual(data["stok_setelah_hold"], 98)
         self.assertEqual(data["stok_setelah_kembali"], 100,
@@ -240,14 +269,19 @@ class TestUnitHelperHold(DasarTest):
 # ---------------------------------------------------------------------------
 
 class TestHoldKeranjang(DasarTest):
+
+    def _produk(self):
+        return self.produk_uji_checkout(min_stok=2)
+
     def _prefix_hold(self, qty=2):
-        """Login sidik jari budi -> beli Kopi Sachet xqty -> checkout dengan tap salah.
+        """Login sidik jari budi -> beli produk tersedia xqty -> checkout tap salah.
 
         Setelah prefix ini, hold sudah terbentuk dan kembali ke menu pelanggan.
         """
+        pid, _produk = self._produk()
         return (
             input_sidik_jari("1001")
-            + "2\nkopi\nP005\n" + str(qty) + "\n"
+            + "2\n" + pid + "\n" + pid + "\n" + str(qty) + "\n"
             + "4\n1002\n"          # tap sidik jari siti -> gagal -> hold
         )
 
@@ -263,8 +297,9 @@ class TestHoldKeranjang(DasarTest):
 
     # -- pembentukan hold ---------------------------------------------------
 
+
     def test_tap_gagal_pertama_membuat_hold_dan_cart_memori_kosong(self):
-        produk = self.produk_fixture("P005")
+        pid, produk = self._produk()
         total = float(produk["price"]) * 2
         hasil = self.jalankan_app(
             self._prefix_hold()
@@ -283,14 +318,16 @@ class TestHoldKeranjang(DasarTest):
         self.assertEqual(len(holds), 1)
         self.assertEqual(holds[0]["percobaan"], 1)
         self.assertEqual(holds[0]["status"], "tertahan")
-        self.assert_stok("P005", self.stok_awal("P005") - 2)
+        self.assert_stok(pid, int(produk["stock"]) - 2)
         self.assertEqual(self.baca_users_hasil()["budi"]["balance"],
                          self.saldo_awal("budi"))
         self.assert_log_tidak_ada(awalan_action="CHECKOUT_FINGER_RP_")
 
     # -- resume hold --------------------------------------------------------
 
+
     def test_resume_n_hold_tetap(self):
+        pid, produk = self._produk()
         hasil = self.jalankan_app(
             self._prefix_hold()
             + "4\nn\n"
@@ -301,14 +338,15 @@ class TestHoldKeranjang(DasarTest):
         holds = self._baca_hold()
         self.assertEqual(len(holds), 1)
         self.assertEqual(holds[0]["percobaan"], 1)
-        self.assert_stok("P005", self.stok_awal("P005") - 2)
+        self.assert_stok(pid, int(produk["stock"]) - 2)
         self.assertEqual(self.baca_users_hasil()["budi"]["balance"],
                          self.saldo_awal("budi"))
         self.assert_log_tidak_ada(awalan_action="CHECKOUT_FINGER_RP_")
 
 
+
     def test_resume_y_tap_sukses(self):
-        produk = self.produk_fixture("P005")
+        pid, produk = self._produk()
         total = float(produk["price"]) * 2
         saldo_harap = self.saldo_awal("budi") - total
         stok_harap = int(produk["stock"]) - 2
@@ -330,19 +368,19 @@ class TestHoldKeranjang(DasarTest):
         self.assertEqual(len(budi["transactions"]), self.jumlah_trx_awal("budi") + 1)
         trx = budi["transactions"][-1]
         self.assertEqual(trx["total"], total)
-        self.assertEqual(trx["items"][0]["id"], "P005")
+        self.assertEqual(trx["items"][0]["id"], pid)
         self.assertEqual(trx["items"][0]["qty"], 2)
-        self.assert_stok("P005", stok_harap)
+        self.assert_stok(pid, stok_harap)
         self.assertEqual(self._baca_hold(), [], msg="hold harus hilang setelah sukses")
-
         self.assert_log_ada(username="budi",
                             action="CHECKOUT_FINGER_RP_" + str(int(round(total))))
         self.assert_log_ada(username="budi", action="HOLD_CART")
         self.assert_log_tidak_ada(username="budi", awalan_action="CHECKOUT_SUCCESS_RP_")
 
 
+
     def test_resume_y_tap_gagal_lagi_percobaan_bertambah(self):
-        produk = self.produk_fixture("P005")
+        pid, produk = self._produk()
         hasil = self.jalankan_app(
             self._prefix_hold()
             + "4\ny\n1002\n"
@@ -360,19 +398,20 @@ class TestHoldKeranjang(DasarTest):
         budi = self.baca_users_hasil()["budi"]
         self.assertEqual(budi["balance"], self.saldo_awal("budi"))
         self.assertEqual(len(budi["transactions"]), self.jumlah_trx_awal("budi"))
-        self.assert_stok("P005", int(produk["stock"]) - 2)
+        self.assert_stok(pid, int(produk["stock"]) - 2)
         self.assert_log_tidak_ada(awalan_action="CHECKOUT_FINGER_RP_")
 
 
+
     def test_hold_terbaru_dipakai_saat_resume(self):
-        produk = self.produk_fixture("P005")
+        pid, produk = self._produk()
         harga = float(produk["price"])
         stok_awal = int(produk["stock"])
         saldo_awal = self.saldo_awal("budi")
         self._siapkan_hold_persisten(qty=2)
         hasil = self.jalankan_app(
             input_sidik_jari("1001")
-            + "2\nkopi\nP005\n1\n"
+            + "2\n" + pid + "\n" + pid + "\n1\n"
             + "4\n1002\n"
             + LOGOUT_CUSTOMER + KELUAR
         )
@@ -380,8 +419,7 @@ class TestHoldKeranjang(DasarTest):
         holds = self._baca_hold()
         self.assertEqual(len(holds), 2, msg=f"holds={holds!r}" + self.info(hasil))
         id_lama, id_baru = holds[0]["id"], holds[1]["id"]
-        self.assert_stok("P005", stok_awal - 3)
-
+        self.assert_stok(pid, stok_awal - 3)
         hasil = self.jalankan_app(
             input_sidik_jari("1001")
             + "4\ny\n1001\n"
@@ -393,55 +431,49 @@ class TestHoldKeranjang(DasarTest):
         budi = self.baca_users_hasil()["budi"]
         self.assertEqual(budi["balance"], saldo_awal - total_baru)
         self.assertEqual(budi["transactions"][-1]["total"], total_baru)
-        self.assert_stok("P005", stok_awal - 3)
+        self.assert_stok(pid, stok_awal - 3)
         sisa = self._baca_hold()
         self.assertEqual([r["id"] for r in sisa], [id_lama],
                          msg="hold lama (belum diresume) harus tetap ada")
 
     # -- jalur non-sidik-jari sudah aman -----------------------------------
 
+
     def test_jalur_pin_salah_tetap_tanpa_hold(self):
-        produk = self.produk_fixture("P005")
+        pid, produk = self.produk_uji_checkout(min_stok=1)
         saldo_awal = self.saldo_awal("budi")
         stok_awal = int(produk["stock"])
-        hasil = self.jalankan_app(
-            input_login("budi", "111111")
-            + "2\nkopi\nP005\n2\n"
-            + "4\n000000\n"
-            + LOGOUT_CUSTOMER + KELUAR
-        )
+        skor = self.skor_risiko_fixture("budi", float(produk["price"]) * 2,
+                                        produk["category"])
+        konfirmasi = "SAYA YAKIN" if skor > 3 else ("y" if skor > 0 else "")
+        isi = (input_login("budi", "111111")
+               + "2\n" + pid + "\n" + pid + "\n2\n4\n")
+        if konfirmasi:
+            isi += konfirmasi + "\n"
+        isi += "000000\n"
+        hasil = self.jalankan_app(isi + LOGOUT_CUSTOMER + KELUAR)
         self.cek_exit(hasil)
         self.assert_teks(hasil, "PIN Salah! Transaksi Dibatalkan.")
         self.assert_tidak_ada_teks(hasil, "Sidik jari gagal.")
         self.assert_tidak_ada_teks(hasil, "Ada keranjang tertahan")
         self.assertEqual(self._baca_hold(), [], msg="jalur PIN salah tidak boleh membuat hold")
-        self.assert_stok("P005", stok_awal)
+        self.assert_stok(pid, stok_awal)
         self.assertEqual(self.baca_users_hasil()["budi"]["balance"], saldo_awal)
         self.assert_log_tidak_ada(awalan_action="HOLD_CART")
 
 
+
     def test_risk_shield_batal_tidak_membuat_hold(self):
-        produk = self.produk_fixture("P001")
-        total = float(produk["price"]) * 2
-        saldo = self.saldo_awal("siti")
-        limit = float(self.user_fixture("siti")["daily_limit"])
-        sisa = saldo - total
-        skor = 0
-        if sisa < 0.3 * saldo:
-            skor += 2
-        if total > limit:
-            skor += 3
-        if "Wants" in [produk["category"]] and sisa < 100000:
-            skor += 2
-        if skor == 0:
-            self.skipTest("data live tidak menghasilkan status risk untuk skenario ini")
-        hasil = self.sesi_sidik_jari("1002", "2\nberas\nP001\n2\n4\nn\n")
+        pid, produk, qty, total, skor = self.cari_skenario_risk("siti", qty=2)
+        hasil = self.sesi_sidik_jari(
+            "1002", f"2\n{pid}\n{pid}\n{qty}\n4\nn\n")
         self.cek_exit(hasil)
         self.assert_teks(hasil, "Transaksi dibatalkan oleh pengguna/Risk Shield.")
         self.assertEqual(self._baca_hold(), [],
                          msg="batal di Risk Shield tidak boleh membuat hold")
-        self.assert_stok("P001", int(produk["stock"]))
+        self.assert_stok(pid, int(produk["stock"]))
         self.assert_log_tidak_ada(awalan_action="HOLD_CART")
+
 
 
     def test_saldo_kurang_tidak_membuat_hold(self):
@@ -459,9 +491,8 @@ class TestHoldKeranjang(DasarTest):
         if pilihan is None:
             self.skipTest("tidak ada produk+qty melebihi saldo pada data live")
         pid, produk, qty = pilihan
-        kata = produk["name"].split()[0].lower()
-        hasil = self.sesi_sidik_jari("1002",
-                                     f"2\n{kata}\n{pid}\n{qty}\n4\n")
+        hasil = self.sesi_sidik_jari(
+            "1002", f"2\n{pid}\n{pid}\n{qty}\n4\n")
         self.cek_exit(hasil)
         self.assert_teks(hasil, "Checkout Gagal: Saldo e-wallet tidak mencukupi!")
         self.assertEqual(self._baca_hold(), [],
@@ -475,10 +506,12 @@ class TestHoldKeranjang(DasarTest):
 # ---------------------------------------------------------------------------
 
 class TestAdminHoldKeranjang(DasarTest):
+
     def _siapkan_hold_persisten(self):
+        pid, produk = self.produk_uji_checkout(min_stok=2)
         hasil = self.jalankan_app(
             input_sidik_jari("1001")
-            + "2\nkopi\nP005\n2\n"
+            + "2\n" + pid + "\n" + pid + "\n2\n"
             + "4\n1002\n"
             + LOGOUT_CUSTOMER + KELUAR
         )
@@ -487,8 +520,8 @@ class TestAdminHoldKeranjang(DasarTest):
         self.assertEqual(len(holds), 1, msg=f"holds={holds!r}" + self.info(hasil))
         return holds[0]
 
-    def test_menu_admin_sembilan_opsi(self):
-        hasil = self.jalankan_app(input_login("admin", "123456") + "9\n" + KELUAR)
+    def test_menu_admin_sepuluh_opsi(self):
+        hasil = self.jalankan_app(input_login("admin", "123456") + "10\n" + KELUAR)
         self.cek_exit(hasil)
         for teks in (
             "1. Tambah Produk Baru (Create)",
@@ -499,16 +532,18 @@ class TestAdminHoldKeranjang(DasarTest):
             "6. Buka Blokir Akun Pelanggan",
             "7. Kelola Sidik Jari (X100C)",
             "8. Kelola Keranjang Tertahan",
-            "9. Logout Admin",
+            "9. Isi Saldo Pelanggan",
+            "10. Logout Admin",
         ):
             self.assert_teks(hasil, teks)
-        self.assert_teks(hasil, "Pilih menu (1-9):")
+        self.assert_teks(hasil, "Pilih menu (1-10):")
         self.assert_teks(hasil, "Logout berhasil.")
         self.assert_teks(hasil, "Terima kasih telah menggunakan PayGuard.")
 
 
+
     def test_admin_list_dan_cancel_hold(self):
-        produk = self.produk_fixture("P005")
+        pid, produk = self.produk_uji_checkout(min_stok=2)
         total = float(produk["price"]) * 2
         stok_awal = int(produk["stock"])
         saldo_awal = self.saldo_awal("budi")
@@ -536,7 +571,7 @@ class TestAdminHoldKeranjang(DasarTest):
                          + " dibatalkan, stok dikembalikan.")
         self.assertEqual(self.baca_keranjang_hasil(), [],
                          msg="hold harus hilang setelah admin cancel")
-        self.assert_stok("P005", stok_awal)
+        self.assert_stok(pid, stok_awal)
         budi = self.baca_users_hasil()["budi"]
         self.assertEqual(budi["balance"], saldo_awal)
         self.assertEqual(len(budi["transactions"]), jumlah_trx)

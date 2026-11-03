@@ -317,8 +317,38 @@ def MenuKeranjangTertahan():
             print("Pilihan tidak valid!")
 
 
+def IsiSaldoPelanggan():
+    # menu 9: isi saldo akun pelanggan (top up hanya bisa dilakukan admin)
+    print("--- ISI SALDO PELANGGAN ---")
+    users = data_manager.baca_users()
+    username = input("Masukan username pelanggan: ").strip()
+    if username == '' or username not in users:
+        print("User tidak ditemukan.")
+        return
+    user = users[username]
+    if user.get("role") != "customer":
+        print("Hanya akun pelanggan yang bisa diisi saldo.")
+        return
+    print("Saldo saat ini: " + data_manager.rupiah(user["balance"]))
+    nominal_teks = input("Masukan nominal isi saldo: ").strip()
+    try:
+        nominal = int(nominal_teks)
+    except ValueError:
+        print("Nominal isi saldo tidak valid!")
+        return
+    if nominal <= 0:
+        print("Nominal isi saldo tidak valid!")
+        return
+    user["balance"] = float(user["balance"]) + nominal
+    data_manager.simpan_users(users)
+    data_manager.catat_log("admin", "TOPUP", username + ":" + str(nominal))
+    print("Isi saldo berhasil! Saldo " + username + " sekarang " +
+          data_manager.rupiah(user["balance"]) + ".")
+
+
 def AdminMenu():
-    # menu admin/merchant: CRUD produk, audit log, buka blokir akun
+    # menu admin/merchant: CRUD produk, audit, unlock, sidik jari,
+    # keranjang tertahan, dan isi saldo pelanggan
     while 1:
         print("=== MENU ADMIN / MERCHANT ===")
         print("1. Tambah Produk Baru (Create)")
@@ -329,8 +359,9 @@ def AdminMenu():
         print("6. Buka Blokir Akun Pelanggan")
         print("7. Kelola Sidik Jari (X100C)")
         print("8. Kelola Keranjang Tertahan")
-        print("9. Logout Admin")
-        pilih = input("Pilih menu (1-9): ").strip()
+        print("9. Isi Saldo Pelanggan")
+        print("10. Logout Admin")
+        pilih = input("Pilih menu (1-10): ").strip()
         if pilih == '1':
             CreateProduct()
         elif pilih == '2':
@@ -348,6 +379,8 @@ def AdminMenu():
         elif pilih == '8':
             MenuKeranjangTertahan()
         elif pilih == '9':
+            IsiSaldoPelanggan()
+        elif pilih == '10':
             # sesuai §5, aksi LOGOUT wajib tercatat di logs.json
             data_manager.catat_log("admin", "LOGOUT")
             print("Logout berhasil.")

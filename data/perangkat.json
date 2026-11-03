@@ -1,5 +1,5 @@
 {
-  "mode": "simulasi",
+  "mode": "soap",
   "host": "192.168.1.201",
   "port": 80,
   "com_key": 0,

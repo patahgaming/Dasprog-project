@@ -204,12 +204,17 @@ Pilih menu (1-4):
   <prompt/menunggu dari fingerprint.tunggu_sidik_jari()>
   Sidik jari dikenali: <username>.
   ```
-  lalu `customer.CustomerMenu(user, metode_login='sidik_jari')`.
+  lalu **berdasarkan role**:
+  - role `admin` -> print `Login berhasil! Selamat datang, admin.` lalu
+    `admin.AdminMenu()` (login admin via sidik jari, tanpa PIN).
+  - role customer -> `customer.CustomerMenu(user, metode_login='sidik_jari')`.
   - event/tidak terbaca: pesan sudah dicetak `fingerprint`, kembali menu utama.
   - PIN tidak dikenal: `Sidik jari belum terdaftar. Hubungi admin.`
   - akun terkunci: `Akun terblokir karena percobaan PIN salah berulang kali. Hubungi Admin.`
+  - Admin harus punya `finger_id` (dipetakan lewat menu admin `7`); satu `finger_id`
+    hanya untuk satu akun (butuh jari/PIN perangkat berbeda untuk admin & customer).
 - `4` -> `Terima kasih telah menggunakan PayGuard.` exit 0.
-- `main.py` meng-import `fingerprint` dan `customer`.
+- `main.py` meng-import `fingerprint`, `admin`, dan `customer`.
 
 ### 5.2 `customer.py` — checkout tanpa PIN
 
@@ -246,8 +251,9 @@ Menu admin menjadi:
 6. Buka Blokir Akun Pelanggan
 7. Kelola Sidik Jari (X100C)
 8. Kelola Keranjang Tertahan
-9. Logout Admin
-Pilih menu (1-9):
+9. Isi Saldo Pelanggan
+10. Logout Admin
+Pilih menu (1-10):
 ```
 
 `7` -> menu:
@@ -281,7 +287,9 @@ Pilih menu (1-5):
 5. kembali ke menu admin.
 - `8` -> `MenuKeranjangTertahan()` (lihat `SPESIFIKASI_HOLD_KERANJANG.md` §4:
   lihat / batalkan & kembalikan stok / kembali).
-- `9` Logout -> log `LOGOUT`, print `Logout berhasil.`
+- `9` -> `IsiSaldoPelanggan()`: admin isi saldo customer
+  (`SPESIFIKASI_PAYGUARD.md` §4.5.9); customer tidak lagi top up sendiri.
+- `10` Logout -> log `LOGOUT`, print `Logout berhasil.`
 
 ## 6. Pengujian (QA)
 

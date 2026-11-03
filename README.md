@@ -64,10 +64,11 @@ salah -> akun terkunci.
 6. Buka blokir akun pelanggan.
 7. **Kelola Sidik Jari (X100C)** – daftar/hapus/lihat mapping sidik jari & tes koneksi.
 8. **Kelola Keranjang Tertahan** – lihat hold, batalkan & kembalikan stok.
-9. Logout Admin.
+9. **Isi Saldo Pelanggan** – top up saldo customer (hanya admin).
+10. Logout Admin.
 
 ### Menu Pelanggan (`customer.py`)
-1. Lihat saldo & **top up**.
+1. Lihat saldo (top up dilakukan admin).
 2. Cari & belanja produk (search katalog).
 3. Pengurutan katalog (harga termurah/termahal, nama A-Z, stok terbanyak).
 4. Lihat keranjang & **checkout** (termasuk melanjutkan keranjang tertahan).
@@ -102,6 +103,15 @@ Mode default `simulasi`: cukup ketik ID perangkat saat diminta. Contoh:
 2. Belanja -> checkout -> saat diminta, ketik `1001` lagi untuk otorisasi.
 3. Transaksi sukses tanpa PIN. ID perangkat tiap akun: budi `1001`, siti `1002`,
    andi `1003`.
+
+### Login admin dengan sidik jari
+
+- Admin juga bisa login lewat menu `3. Login Sidik Jari (X100C)`.
+- Pencocokan tetap memakai `finger_id`: login admin biasa -> menu
+  `7. Kelola Sidik Jari` -> `1. Daftarkan sidik jari ke akun`, username `admin`,
+  ID perangkat jari **kedua** (harus berbeda dari finger_id customer).
+- Setelah tap, aplikasi melihat `role` akun: admin -> **Menu Admin**, customer ->
+  Menu Pelanggan. Satu `finger_id` hanya boleh untuk satu akun.
 
 ### Setup perangkat X100C yang sebenarnya
 
@@ -177,8 +187,8 @@ File data & kontrak lengkap: [`data/keranjang.json`](data/keranjang.json) ·
 |---|---|
 | `main.py` | Splash screen, menu utama, login/register, routing role |
 | `auth.py` | Hash+salt PIN, register, login, lockout, verify PIN, logout |
-| `admin.py` | CRUD katalog produk, audit log, buka blokir akun, kelola sidik jari |
-| `customer.py` | Top up, marketplace, keranjang, checkout (PIN/sidik jari), riwayat |
+| `admin.py` | CRUD katalog produk, audit log, buka blokir akun, kelola sidik jari, hold, isi saldo |
+| `customer.py` | Lihat saldo, marketplace, keranjang, checkout (PIN/sidik jari), riwayat |
 | `risk_assistant.py` | Heuristic risk engine & tampilan Risk Shield |
 | `fingerprint.py` | Klien X100C (SOAP websocket), event sidik jari, anti-replay |
 | `data_manager.py` | I/O JSON (users/products/logs), id produk, log, rupiah |
@@ -242,7 +252,7 @@ File data & kontrak lengkap: [`data/keranjang.json`](data/keranjang.json) ·
 | Entitas | Create | Read | Update | Delete |
 |---|---|---|---|---|
 | Produk | `CreateProduct` | `ReadAllProducts`, browse/search customer | `UpdateProductDetails`, `DeductProductStock` saat checkout | `DeleteProduct` |
-| User | `RegisterUser` | `LoginUser`, cek saldo | top up, potong saldo, `failed_attempts`/`is_locked`, transaksi | tidak ada (blokir akun = soft delete) |
+| User | `RegisterUser` | `LoginUser`, cek saldo | isi saldo (admin), potong saldo, `failed_attempts`/`is_locked`, transaksi | tidak ada (blokir akun = soft delete) |
 | Transaksi | `CreateReceipt` + `SaveTransactionToUserHistory` | `ViewTransactionHistory` | – | – (append-only) |
 | Log | `catat_log` | `DisplaySystemLogs` | – | – (append-only) |
 | Keranjang | `AddToCart` | `GetUserCart` / lihat keranjang | qty gabungan | `ClearUserCart` |
@@ -253,7 +263,7 @@ File data & kontrak lengkap: [`data/keranjang.json`](data/keranjang.json) ·
 |---|---|---|
 | Anggota 1 | `main.py`, `admin.py` | Splash & routing menu, CRUD produk, audit log, unlock akun, integrasi |
 | Anggota 2 | `auth.py`, `data_manager.py`, `risk_assistant.py` | Keamanan PIN (hash+salt, lockout), I/O JSON, risk engine |
-| Anggota 3 | `customer.py` | Top up, marketplace, search/sort, keranjang, checkout, riwayat |
+| Anggota 3 | `customer.py` | Lihat saldo, marketplace, search/sort, keranjang, checkout, riwayat |
 
 Dependensi: `main` → `auth`/`admin`/`customer`/`fingerprint`; `customer` →
 `risk_assistant`/`auth`/`data_manager`/`fingerprint`; `admin` → `data_manager`/
@@ -269,7 +279,7 @@ python tests\verifikasi_final.py   # opsional: spot-check end-to-end (exit 0 = l
 
 Test memakai salinan `tests/fixtures/` di folder `tests/_tmp/...` (bukan
 `tempfile.mkdtemp()` karena batasan sandbox Windows), sehingga data asli
-`payguard/data/` tidak berubah. Hasil suite: **140 test OK** (termasuk mock perangkat
+`payguard/data/` tidak berubah. Hasil suite: **147 test OK** (termasuk mock perangkat
 X100C berbasis `socketserver`) — lihat [`HASIL_TEST.md`](HASIL_TEST.md) dan
 [`tests/HASIL_QA.md`](tests/HASIL_QA.md).
 

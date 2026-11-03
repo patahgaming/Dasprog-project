@@ -34,7 +34,6 @@ import subprocess
 import sys
 import time
 import threading
-import time
 import unittest
 import uuid
 import xml.etree.ElementTree as ET
@@ -66,7 +65,7 @@ APP_TIMEOUT = 60
 DRIVER_TIMEOUT = 30
 
 KELUAR = "4\n"
-LOGOUT_ADMIN = "9\n"
+LOGOUT_ADMIN = "10\n"
 LOGOUT_CUSTOMER = "6\n"
 
 PROMPT_SIMULASI = "(SIMULASI) Masukkan ID perangkat:"
@@ -697,6 +696,51 @@ class DasarTest(unittest.TestCase):
     def jumlah_trx_awal(self, username):
         return len(self.fixture_users()[username].get("transactions", []))
 
+    def produk_uji_checkout(self, min_stok=1):
+        """Pilih produk yang stoknya cukup di data live (harga termurah)."""
+        kandidat = [(pid, item) for pid, item in self.fixture_products().items()
+                    if int(item.get("stock", 0)) >= int(min_stok)]
+        if not kandidat:
+            self.skipTest(f"tidak ada produk stok >= {min_stok} pada data live")
+        kandidat.sort(key=lambda pasangan: (float(pasangan[1]["price"]), pasangan[0]))
+        return kandidat[0]
+
+    def skor_risiko_fixture(self, username, total, kategori):
+        user = self.fixture_users()[username]
+        from datetime import datetime as _dt
+        hari_ini = _dt.now().strftime("%Y-%m-%d")
+        today_spent = sum(float(trx.get("total", 0))
+                          for trx in user.get("transactions", [])
+                          if str(trx.get("date", ""))[:10] == hari_ini)
+        saldo = float(user["balance"])
+        limit = float(user["daily_limit"])
+        sisa = saldo - float(total)
+        skor = 0
+        if sisa < 0.3 * saldo:
+            skor += 2
+        if today_spent + float(total) > limit:
+            skor += 3
+        if "Wants" in kategori and sisa < 100000:
+            skor += 2
+        return skor
+
+    def cari_skenario_risk(self, username, qty=2):
+        for pid, produk in self.fixture_products().items():
+            if int(produk.get("stock", 0)) < qty:
+                continue
+            total = float(produk["price"]) * qty
+            skor = self.skor_risiko_fixture(username, total, produk["category"])
+            if skor > 0:
+                return pid, produk, qty, total, skor
+        self.skipTest("data live tidak menghasilkan skenario risk")
+
+    def set_finger_id_kerja(self, username, finger_id):
+        """Set finger_id pada data SALINAN folder kerja (bukan fixtures/data asli)."""
+        users = baca_json_file(self.data_dir_kerja / "users.json")
+        users[username]["finger_id"] = str(finger_id)
+        (self.data_dir_kerja / "users.json").write_text(
+            json.dumps(users, ensure_ascii=False, indent=2), encoding="utf-8")
+
     @staticmethod
     def rupiah_teks(angka):
         angka = int(round(float(angka)))
@@ -705,9 +749,10 @@ class DasarTest(unittest.TestCase):
         return "Rp" + f"{angka:,}".replace(",", ".")
 
 
+
     def _assert_hold_pertama(self, hasil, username="budi"):
         """Assert hold terbentuk setelah tap sidik jari gagal (nilai dari fixtures)."""
-        produk = self.produk_fixture("P005")
+        pid, produk = self.produk_uji_checkout(min_stok=2)
         harga = float(produk["price"])
         qty = 2
         total = harga * qty
@@ -731,7 +776,7 @@ class DasarTest(unittest.TestCase):
         self.assertEqual(record["username"], username)
         self.assertRegex(record["waktu"], r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$")
         self.assertEqual(record["items"],
-                         [{"id": "P005", "name": produk["name"],
+                         [{"id": pid, "name": produk["name"],
                            "price": harga, "qty": qty}])
         self.assertEqual(record["total"], total)
         self.assertEqual(record["percobaan"], 1)
@@ -740,7 +785,7 @@ class DasarTest(unittest.TestCase):
         user = self.baca_users_hasil()[username]
         self.assertEqual(user["balance"], saldo_awal)
         self.assertEqual(len(user["transactions"]), jumlah_trx)
-        self.assert_stok("P005", stok_awal - qty)
+        self.assert_stok(pid, stok_awal - qty)
         log_hold = self.assert_log_ada(username=username, action="HOLD_CART")
         detail = str(log_hold.get("detail", ""))
         self.assertTrue(detail.startswith(record["id"] + ":"),
@@ -1267,30 +1312,57 @@ class TestLoginSidikJari(DasarTest):
                                 msg=self.info(hasil))
         self.assert_teks(hasil, "Terima kasih telah menggunakan PayGuard.")
 
+    def test_login_sidik_jari_admin_ke_menu_admin(self):
+        self.set_finger_id_kerja("admin", "2001")
+        hasil = self.jalankan_app(
+            input_sidik_jari("2001") + LOGOUT_ADMIN + KELUAR)
+        self.cek_exit(hasil)
+        self.assert_teks(hasil, "Sidik jari dikenali: admin.")
+        self.assert_teks(hasil, "Login berhasil! Selamat datang, admin.")
+        self.assert_teks(hasil, "=== MENU ADMIN / MERCHANT ===")
+        self.assert_teks(hasil, "9. Isi Saldo Pelanggan")
+        self.assert_teks(hasil, "10. Logout Admin")
+        self.assert_teks(hasil, "Pilih menu (1-10):")
+        self.assert_teks(hasil, "Logout berhasil.")
+        self.assert_tidak_ada_teks(hasil, "=== MENU PELANGGAN ===")
+        self.assert_tidak_ada_teks(hasil, "Masukan PIN E-Wallet")
+
+    def test_login_sidik_jari_customer_tetap_menu_pelanggan(self):
+        hasil = self.jalankan_app(
+            input_sidik_jari("1001") + LOGOUT_CUSTOMER + KELUAR)
+        self.cek_exit(hasil)
+        self.assert_teks(hasil, "Sidik jari dikenali: budi.")
+        self.assert_teks(hasil, "=== MENU PELANGGAN ===")
+        self.assert_teks(hasil, "1. Lihat Saldo")
+        self.assert_tidak_ada_teks(hasil, "=== MENU ADMIN / MERCHANT ===")
+
 
 # ---------------------------------------------------------------------------
 # 5. Integrasi: checkout sidik jari (tanpa PIN)
 # ---------------------------------------------------------------------------
 
 class TestCheckoutSidikJari(DasarTest):
-    def _input_checkout(self, pin_otorisasi):
+
+    def _input_checkout(self, pin_otorisasi, qty=2):
+        pid, produk = self.produk_uji_checkout(min_stok=qty)
         return (
             input_sidik_jari("1001")            # login sidik jari budi
-            + "2\nkopi\nP005\n2\n"              # beli Kopi Sachet x2 = 4.000
-            + "4\n"                             # checkout (risk AMAN)
+            + "2\n" + pid + "\n" + pid + "\n" + str(qty) + "\n"
+            + "4\n"                             # checkout (risk dihitung app)
             + pin_otorisasi + "\n"              # tempel sidik jari
             + LOGOUT_CUSTOMER + KELUAR
         )
 
 
+
     def test_checkout_sidik_jari_sukses_tanpa_pin(self):
-        produk = self.produk_fixture("P005")
+        pid, produk = self.produk_uji_checkout(min_stok=2)
         harga = float(produk["price"])
         qty = 2
         total = harga * qty
         saldo_harap = self.saldo_awal("budi") - total
         stok_harap = int(produk["stock"]) - qty
-        hasil = self.jalankan_app(self._input_checkout("1001"))
+        hasil = self.jalankan_app(self._input_checkout("1001", qty=qty))
         self.cek_exit(hasil)
         self.assert_teks(hasil, "Tempelkan sidik jari untuk mengotorisasi pembayaran...")
         self.assert_teks(hasil, "Pembayaran diotorisasi dengan sidik jari.")
@@ -1304,9 +1376,9 @@ class TestCheckoutSidikJari(DasarTest):
         self.assertEqual(len(budi["transactions"]), self.jumlah_trx_awal("budi") + 1)
         trx = budi["transactions"][-1]
         self.assertEqual(trx["total"], total)
-        self.assertEqual(trx["items"][0]["id"], "P005")
+        self.assertEqual(trx["items"][0]["id"], pid)
         self.assertEqual(trx["items"][0]["qty"], qty)
-        self.assert_stok("P005", stok_harap)
+        self.assert_stok(pid, stok_harap)
 
         log_finger = self.assert_log_ada(username="budi", awalan_action="CHECKOUT_FINGER_RP_")
         self.assertEqual(log_finger.get("action"),
@@ -1324,13 +1396,28 @@ class TestCheckoutSidikJari(DasarTest):
         self.cek_exit(hasil)
         self._assert_hold_pertama(hasil)
 
+
     def test_checkout_jalur_pin_tetap_meminta_pin(self):
         # regresi: login PIN biasa tetap memakai PIN saat checkout
-        hasil = self.sesi_customer_pin("siti", "222222", "2\nkopi\nP005\n2\n4\n222222\n")
+        pid, produk = self.produk_uji_checkout(min_stok=2)
+        harga = float(produk["price"])
+        total = harga * 2
+        skor = self.skor_risiko_fixture("siti", total, produk["category"])
+        konfirmasi = ""
+        if skor > 3:
+            konfirmasi = "SAYA YAKIN\n"
+        elif skor > 0:
+            konfirmasi = "y\n"
+        hasil = self.jalankan_app(
+            input_login("siti", "222222")
+            + "2\n" + pid + "\n" + pid + "\n2\n4\n"
+            + konfirmasi + "222222\n"
+            + LOGOUT_CUSTOMER + KELUAR)
         self.cek_exit(hasil)
         self.assert_teks(hasil, "Masukan PIN E-Wallet untuk konfirmasi pembayaran:")
         self.assert_teks(hasil, "TRANSAKSI BERHASIL! Resi pembayaran telah diterbitkan.")
-        self.assert_log_ada(username="siti", action="CHECKOUT_SUCCESS_RP_4000")
+        self.assert_log_ada(username="siti",
+                            action="CHECKOUT_SUCCESS_RP_" + str(int(round(total))))
 
     def sesi_customer_pin(self, username, pin, isi_menu):
         return self.jalankan_app(input_login(username, pin) + isi_menu + LOGOUT_CUSTOMER + KELUAR)

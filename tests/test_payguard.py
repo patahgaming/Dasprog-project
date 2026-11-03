@@ -147,7 +147,7 @@ def input_register(username, pin):
 
 
 KELUAR = "4\n"
-LOGOUT_ADMIN = "9\n"
+LOGOUT_ADMIN = "10\n"
 LOGOUT_CUSTOMER = "6\n"
 
 
@@ -459,15 +459,16 @@ class DasarTest(unittest.TestCase):
             "6. Buka Blokir Akun Pelanggan",
             "7. Kelola Sidik Jari (X100C)",
             "8. Kelola Keranjang Tertahan",
-            "9. Logout Admin",
+            "9. Isi Saldo Pelanggan",
+            "10. Logout Admin",
         ):
             self.assert_teks(hasil, teks)
-        self.assert_teks(hasil, "Pilih menu (1-9):")
+        self.assert_teks(hasil, "Pilih menu (1-10):")
 
     def assert_menu_customer(self, hasil):
         self.assert_teks(hasil, "=== MENU PELANGGAN ===")
         for teks in (
-            "1. Lihat Saldo & Top Up",
+            "1. Lihat Saldo",
             "2. Cari & Belanja Produk",
             "3. Pengurutan Katalog",
             "4. Lihat Keranjang & Checkout",
@@ -526,6 +527,33 @@ class DasarTest(unittest.TestCase):
     def urutan_produk_fixture(self, kunci, reverse=False):
         produk = list(self.fixture_products().values())
         return [item["name"] for item in sorted(produk, key=kunci, reverse=reverse)]
+
+    def produk_uji_checkout(self, min_stok=1):
+        """Pilih produk yang stoknya cukup di data live (harga termurah)."""
+        kandidat = [(pid, item) for pid, item in self.fixture_products().items()
+                    if int(item.get("stock", 0)) >= int(min_stok)]
+        if not kandidat:
+            self.skipTest(f"tidak ada produk stok >= {min_stok} pada data live")
+        kandidat.sort(key=lambda pasangan: (float(pasangan[1]["price"]), pasangan[0]))
+        return kandidat[0]
+
+    def cari_skenario_risk(self, username, qty=2):
+        """Cari produk+qty yang menghasilkan status Risk Shield (skor > 0)."""
+        for pid, produk in self.fixture_products().items():
+            if int(produk.get("stock", 0)) < qty:
+                continue
+            total = float(produk["price"]) * qty
+            skor = self.skor_risiko_fixture(username, total, produk["category"])
+            if skor > 0:
+                return pid, produk, qty, total, skor
+        self.skipTest("data live tidak menghasilkan skenario risk untuk pengujian ini")
+
+    def set_saldo_kerja(self, username, saldo):
+        """Siapkan saldo langsung di data SALINAN folder kerja (setup fixture)."""
+        users = self.baca_users_hasil()
+        users[username]["balance"] = float(saldo)
+        (self.workdir / "data" / "users.json").write_text(
+            json.dumps(users, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -1035,37 +1063,28 @@ class TestAdminLogsUnlock(DasarTest):
 # Customer: top up (kontrak §4.4.1)
 # ---------------------------------------------------------------------------
 
-class TestCustomerTopup(DasarTest):
+class TestCustomerLihatSaldo(DasarTest):
+    """Menu pelanggan 1 = Lihat Saldo saja (top up hanya oleh admin)."""
 
-    def test_topup_sukses(self):
-        saldo_awal = self.saldo_awal("siti")
-        nominal = 50000
-        saldo_harap = saldo_awal + nominal
-        hasil = self.sesi_customer("siti", "222222", "1\n" + str(nominal) + "\n")
+    def test_lihat_saldo_tanpa_topup(self):
+        saldo = self.saldo_awal("siti")
+        hasil = self.sesi_customer("siti", "222222", "1\n")
         self.cek_exit(hasil)
-        self.assert_teks(hasil, "Saldo saat ini:")
-        self.assert_rupiah(hasil, saldo_awal)
-        self.assert_teks(hasil, "Masukan nominal top up:")
-        self.assert_teks(hasil, "Top up berhasil! Saldo baru:")
-        self.assert_rupiah(hasil, saldo_harap)
-        self.assert_saldo("siti", saldo_harap)
+        self.assert_menu_customer(hasil)
+        self.assert_teks(hasil, "Saldo Anda:")
+        self.assert_rupiah(hasil, saldo)
+        self.assert_tidak_ada_teks(hasil, "Masukan nominal top up:")
+        self.assert_tidak_ada_teks(hasil, "Top up berhasil")
+        self.assert_data_tetap()
+        self.assert_log_tidak_ada(action="TOPUP")
 
-        users = self.baca_users_hasil()
-        for username in [nama for nama in self.fixture_users() if nama != "siti"]:
-            self.assertEqual(users[username], self.fixture_users()[username],
-                             msg=f"user {username} ikut berubah")
-        log_topup = self.assert_log_ada(username="siti", action="TOPUP")
-        self.assertEqual(float(log_topup.get("detail")), float(nominal))
-
-    def test_topup_nominal_invalid(self):
-        for nominal in ("abc", "0", "-50000", ""):
-            with self.subTest(nominal=nominal):
-                self.pulihkan_data()
-                hasil = self.sesi_customer("siti", "222222", f"1\n{nominal}\n")
-                self.cek_exit(hasil)
-                self.assert_teks(hasil, "Nominal top up tidak valid!")
-                self.assert_saldo("siti", 150000)
-                self.assert_log_tidak_ada(username="siti", action="TOPUP")
+    def test_menu_pelanggan_tanpa_opsi_topup(self):
+        hasil = self.sesi_customer("siti", "222222", "")
+        self.cek_exit(hasil)
+        self.assert_menu_customer(hasil)
+        self.assert_tidak_ada_teks(hasil, "Lihat Saldo & Top Up")
+        self.assert_tidak_ada_teks(hasil, "Top Up")
+        self.assert_tidak_ada_teks(hasil, "Masukan nominal top up:")
 
 
 # ---------------------------------------------------------------------------
@@ -1155,14 +1174,15 @@ class TestCustomerMarketplace(DasarTest):
         self.assert_data_tetap()
 
 
+
     def test_cart_gabung_item_sama(self):
-        # tambah P001 qty 2 lalu qty 3 -> keranjang bergabung jadi qty 5
-        produk = self.produk_fixture("P001")
+        # tambah produk qty 2 lalu qty 3 -> keranjang bergabung jadi qty 5
+        pid, produk = self.produk_uji_checkout(min_stok=5)
         harga = float(produk["price"])
         total = harga * 5
         isi = (
-            "2\nberas\nP001\n2\n"
-            "2\nberas\nP001\n3\n"
+            "2\n" + pid + "\n" + pid + "\n2\n"
+            "2\n" + pid + "\n" + pid + "\n3\n"
             "4\n"
             "000000\n"
         )
@@ -1223,8 +1243,9 @@ class TestCustomerSort(DasarTest):
 
 class TestCustomerCheckout(DasarTest):
 
+
     def test_checkout_sukses_data_dan_riwayat(self):
-        produk = self.produk_fixture("P005")
+        pid, produk = self.produk_uji_checkout(min_stok=2)
         harga = float(produk["price"])
         qty = 2
         total = harga * qty
@@ -1234,7 +1255,7 @@ class TestCustomerCheckout(DasarTest):
         stok_harap = int(produk["stock"]) - qty
         skor = self.skor_risiko_fixture("siti", total, produk["category"])
         konfirmasi = self.konfirmasi_untuk_skor(skor)
-        isi = "2\nkopi\nP005\n" + str(qty) + "\n4\n"
+        isi = ("2\n" + pid + "\n" + pid + "\n" + str(qty) + "\n4\n")
         if konfirmasi:
             isi += konfirmasi + "\n"
         isi += "222222\n"
@@ -1268,18 +1289,19 @@ class TestCustomerCheckout(DasarTest):
         self.assertEqual(trx["total"], total)
         self.assertEqual(trx["risk_score"], skor)
         self.assertEqual(trx["items"],
-                         [{"id": "P005", "name": produk["name"], "price": harga, "qty": qty}])
+                         [{"id": pid, "name": produk["name"], "price": harga, "qty": qty}])
         self.assertIn(trx["id"].lower(), normalisasi(hasil.stdout),
                       msg="ID transaksi di resi tidak sama dengan yang disimpan")
         for username in [nama for nama in self.fixture_users() if nama != "siti"]:
             self.assertEqual(users[username], self.fixture_users()[username])
 
         products = self.baca_products_hasil()
-        self.assertEqual(products["P005"]["stock"], stok_harap)
-        for pid, item in self.fixture_products().items():
-            if pid == "P005":
+        self.assertEqual(products[pid]["stock"], stok_harap)
+        for pid_lain, item in self.fixture_products().items():
+            if pid_lain == pid:
                 continue
-            self.assertEqual(products[pid], item, msg=f"stok produk {pid} ikut berubah")
+            self.assertEqual(products[pid_lain], item,
+                             msg=f"stok produk {pid_lain} ikut berubah")
 
         self.assert_log_lama_utuh()
         self.assert_log_ada(username="siti", action="LOGIN_SUCCESS")
@@ -1336,15 +1358,18 @@ class TestCustomerCheckout(DasarTest):
         self.assert_log_tidak_ada(awalan_action="CHECKOUT_SUCCESS")
 
 
+
     def test_checkout_pin_salah_data_tidak_berubah(self):
-        produk = self.produk_fixture("P005")
+        pid, produk = self.produk_uji_checkout(min_stok=1)
         harga = float(produk["price"])
         stok_awal = int(produk["stock"])
         saldo_awal = self.saldo_awal("budi")
         jumlah_trx = len(self.user_fixture("budi")["transactions"])
         skor = self.skor_risiko_fixture("budi", harga, produk["category"])
         konfirmasi = self.konfirmasi_untuk_skor(skor)
-        isi = "2\nkopi\nP005\n1\n4\n" + (konfirmasi + "\n" if konfirmasi else "")
+        isi = "2\n" + pid + "\n" + pid + "\n1\n4\n"
+        if konfirmasi:
+            isi += konfirmasi + "\n"
         isi += "000000\n"
         hasil = self.sesi_customer("budi", "111111", isi)
         self.cek_exit(hasil)
@@ -1355,7 +1380,7 @@ class TestCustomerCheckout(DasarTest):
         self.assertEqual(budi["balance"], saldo_awal)
         self.assertEqual(len(budi["transactions"]), jumlah_trx)
         self.assertEqual(budi["failed_attempts"], 0)    # VerifyPIN tidak menambah attempt
-        self.assert_stok("P005", stok_awal)
+        self.assert_stok(pid, stok_awal)
         self.assert_log_tidak_ada(awalan_action="CHECKOUT_SUCCESS")
         self.assert_log_tidak_ada(awalan_action="CHECKOUT_FINGER")
 
@@ -1368,9 +1393,10 @@ class TestCustomerCheckout(DasarTest):
         self.assert_data_tetap()
 
 
+
     def test_checkout_saldo_pas_total_berhasil(self):
-        # Pakai user BARU + top up persis sebesar total: saldo == total (batas
-        # `saldo < total` false), sepenuhnya data-driven dari fixtures produk.
+        # User BARU; saldo disiapkan langsung di data SALINAN = total (saldo == total;
+        # batas `saldo < total` false). Top up customer sudah tidak ada di menu.
         produk = min(
             (item for item in self.fixture_products().values() if int(item["stock"]) >= 2),
             key=lambda item: (float(item["price"]), item["id"]),
@@ -1378,8 +1404,10 @@ class TestCustomerCheckout(DasarTest):
         harga = float(produk["price"])
         qty = 2
         total = harga * qty
-        nominal_topup = int(round(total))
-        # skenario user baru: saldo 0 -> top up -> saldo == total
+        daftar = self.jalankan_app(input_register("qabatas", "4321") + KELUAR)
+        self.cek_exit(daftar)
+        self.set_saldo_kerja("qabatas", total)
+
         limit = 500000.0
         sisa = total - total
         skor = 0
@@ -1391,16 +1419,14 @@ class TestCustomerCheckout(DasarTest):
             skor += 2
         konfirmasi = self.konfirmasi_untuk_skor(skor)
         isi = (
-            input_register("qabatas", "4321")
-            + input_login("qabatas", "4321")
-            + "1\n" + str(nominal_topup) + "\n"
+            input_login("qabatas", "4321")
             + "2\n" + produk["id"] + "\n" + produk["id"] + "\n" + str(qty) + "\n"
             + "4\n" + (konfirmasi + "\n" if konfirmasi else "")
             + "4321\n"
         )
         hasil = self.jalankan_app(isi + LOGOUT_CUSTOMER + KELUAR)
         self.cek_exit(hasil)
-        self.assert_rupiah(hasil, total)  # total keranjang
+        self.assert_rupiah(hasil, total)
         if skor == 0:
             self.assert_teks(hasil, "[STATUS: AMAN]")
         elif skor <= 3:
@@ -1411,14 +1437,12 @@ class TestCustomerCheckout(DasarTest):
         self.assert_teks(hasil, f"Skor Risiko: {skor}")
         self.assert_teks(hasil, "Sisa Saldo:")
         self.assert_rupiah(hasil, 0)
-
         user = self.baca_users_hasil()["qabatas"]
         self.assertEqual(user["balance"], 0.0)
         self.assertEqual(len(user["transactions"]), 1)
         self.assertEqual(user["transactions"][0]["total"], total)
         self.assertEqual(user["transactions"][0]["risk_score"], skor)
-        stok_harap = int(produk["stock"]) - qty
-        self.assert_stok(produk["id"], stok_harap)
+        self.assert_stok(produk["id"], int(produk["stock"]) - qty)
         self.assert_log_ada(username="qabatas",
                             action="CHECKOUT_SUCCESS_RP_" + str(int(round(total))))
 
@@ -1432,7 +1456,7 @@ class TestCustomerCheckout(DasarTest):
             "1\nadmin\n123456\n"
             "3\nP007\n2\n1\n"
             "3\nP008\n1\n" + str(int(harga_baru_p008)) + "\n"
-            "9\n"
+            "10\n"
             "1\nbudi\n111111\n"
             "2\nheadset\nP007\n2\n"      # stok baru 1 -> jumlah 2 harus ditolak
             "2\nbuku\nP008\n1\n"         # harga baru 9.000
@@ -1466,16 +1490,16 @@ class TestCustomerCheckout(DasarTest):
 
 class TestRiskShield(DasarTest):
 
+
     def test_risk_aman_tanpa_konfirmasi(self):
-        produk = min(self.fixture_products().values(),
-                     key=lambda item: (float(item["price"]), item["id"]))
+        pid, produk = self.produk_uji_checkout(min_stok=1)
         total = float(produk["price"])
         skor = self.skor_risiko_fixture("siti", total, produk["category"])
         if skor != 0:
             self.skipTest(f"data live tidak menghasilkan skor 0 (skor={skor})")
         hasil = self.sesi_customer(
             "siti", "222222",
-            f"2\n{produk['id']}\n{produk['id']}\n1\n4\n999999\n")
+            f"2\n{pid}\n{pid}\n1\n4\n999999\n")
         self.cek_exit(hasil)
         self.assert_teks(hasil, "PAYGUARD FINANCIAL RISK SHIELD")
         self.assert_teks(hasil, "[STATUS: AMAN] Kondisi keuanganmu stabil untuk transaksi ini.")
@@ -1486,16 +1510,12 @@ class TestRiskShield(DasarTest):
         self.assert_data_tetap()
 
 
+
     def test_risk_peringatan_sedang_batal_n(self):
-        produk = self.produk_fixture("P001")
-        qty = 2
-        total = float(produk["price"]) * qty
-        skor = self.skor_risiko_fixture("siti", total, produk["category"])
-        if skor == 0:
-            self.skipTest("data live tidak menghasilkan status risk (skor 0)")
+        pid, produk, qty, total, skor = self.cari_skenario_risk("siti", qty=2)
         hasil = self.sesi_customer(
             "siti", "222222",
-            f"2\nberas\nP001\n{qty}\n4\nn\n")
+            f"2\n{pid}\n{pid}\n{qty}\n4\nn\n")
         self.cek_exit(hasil)
         if skor > 3:
             self.assert_teks(hasil, "[STATUS: RISIKO TINGGI / IMPULSIVE BUYING DETECTED]")
@@ -1510,19 +1530,15 @@ class TestRiskShield(DasarTest):
         self.assert_log_tidak_ada(awalan_action="CHECKOUT_SUCCESS")
 
 
+
     def test_risk_peringatan_sedang_lanjut_y(self):
-        produk = self.produk_fixture("P001")
-        qty = 2
-        total = float(produk["price"]) * qty
+        pid, produk, qty, total, skor = self.cari_skenario_risk("siti", qty=2)
         saldo_awal = self.saldo_awal("siti")
         stok_awal = int(produk["stock"])
-        skor = self.skor_risiko_fixture("siti", total, produk["category"])
-        if skor == 0:
-            self.skipTest("data live tidak menghasilkan status risk (skor 0)")
         konfirmasi = self.konfirmasi_untuk_skor(skor)
         hasil = self.sesi_customer(
             "siti", "222222",
-            f"2\nberas\nP001\n{qty}\n4\n{konfirmasi}\n222222\n")
+            f"2\n{pid}\n{pid}\n{qty}\n4\n{konfirmasi}\n222222\n")
         self.cek_exit(hasil)
         if skor <= 3:
             self.assert_teks(hasil, "[STATUS: PERINGATAN SEDANG]")
@@ -1532,23 +1548,23 @@ class TestRiskShield(DasarTest):
         self.assert_teks(hasil, f"Skor Risiko: {skor}")
         saldo_harap = saldo_awal - total
         self.assert_rupiah(hasil, saldo_harap)
-
         siti = self.baca_users_hasil()["siti"]
         self.assertEqual(siti["balance"], saldo_harap)
         self.assertEqual(len(siti["transactions"]), 1)
         self.assertEqual(siti["transactions"][0]["total"], total)
         self.assertEqual(siti["transactions"][0]["risk_score"], skor)
-        self.assert_stok("P001", stok_awal - qty)
+        self.assert_stok(pid, stok_awal - qty)
         self.assert_log_ada(username="siti",
                             action="CHECKOUT_SUCCESS_RP_" + str(int(round(total))))
+
 
 
     def _siapkan_high_risk(self, frasa_konfirmasi, pin=""):
         """Skenario risk tinggi deterministik pakai user BARU (data-driven produk).
 
-        User baru balance 0 -> top up (total + 100.000) -> beli P007 x2.
+        Saldo user baru disiapkan langsung di data SALINAN folder kerja
+        (fixtures-like setup), karena top up customer sudah tidak ada di menu.
         Sisa 100.000 < 30% saldo & total > daily_limit 500.000 -> skor 5.
-        Tidak bergantung pada saldo/histori user seed yang bisa berubah.
         """
         produk = self.produk_fixture("P007")
         qty = 2
@@ -1566,16 +1582,18 @@ class TestRiskShield(DasarTest):
             skor += 2
         if skor <= 3:
             self.skipTest(f"data live tidak mendukung skenario risk tinggi (skor={skor})")
+        daftar = self.jalankan_app(input_register("qa_high", "4321") + KELUAR)
+        self.cek_exit(daftar)
+        self.set_saldo_kerja("qa_high", saldo_target)
         isi = (
-            input_register("qa_high", "4321")
-            + input_login("qa_high", "4321")
-            + "1\n" + str(int(round(saldo_target))) + "\n"
+            input_login("qa_high", "4321")
             + "2\n" + produk["id"] + "\n" + produk["id"] + "\n" + str(qty) + "\n"
             + "4\n" + frasa_konfirmasi + "\n"
             + (pin + "\n" if pin else "")
             + LOGOUT_CUSTOMER + KELUAR
         )
         return self.jalankan_app(isi), produk, qty, total, saldo_target, skor
+
 
 
 
@@ -1587,14 +1605,13 @@ class TestRiskShield(DasarTest):
                 hasil, produk, qty, total, saldo_target, skor = \
                     self._siapkan_high_risk(frasa)
                 self.cek_exit(hasil)
-                self.assert_teks(hasil, "Top up berhasil!")
                 self.assert_teks(hasil, "[STATUS: RISIKO TINGGI / IMPULSIVE BUYING DETECTED]")
                 self.assert_teks(hasil, "Rekomendasi AI: Tunda transaksi ini demi kesehatan finansialmu.")
                 self.assert_teks(hasil, "Ketik 'SAYA YAKIN' untuk memaksa transaksi:")
                 self.assert_teks(hasil, "Transaksi dibatalkan oleh pengguna/Risk Shield.")
                 self.assert_tidak_ada_teks(hasil, "--- RESI PEMBAYARAN ---")
                 user = self.baca_users_hasil()["qa_high"]
-                self.assertEqual(user["balance"], saldo_target)  # top up tetap
+                self.assertEqual(user["balance"], saldo_target)
                 self.assertEqual(len(user["transactions"]), 0)
                 self.assert_stok("P007", int(produk["stock"]))
                 self.assert_log_tidak_ada(awalan_action="CHECKOUT_FINGER_RP_")
@@ -1661,6 +1678,80 @@ class TestCustomerRiwayat(DasarTest):
         self.assert_teks(hasil, "Belum ada transaksi.")
         self.assert_tidak_ada_teks(hasil, "--- RESI PEMBAYARAN ---")
         self.assert_data_tetap()
+
+
+class TestAdminIsiSaldo(DasarTest):
+    """Admin menu 9: Isi Saldo Pelanggan (top up hanya lewat admin)."""
+
+    def _target_customer(self):
+        return next(nama for nama, user in self.fixture_users().items()
+                    if user.get("role") == "customer")
+
+    def test_isi_saldo_sukses(self):
+        target = self._target_customer()
+        saldo_awal = self.saldo_awal(target)
+        nominal = 50000
+        harap = saldo_awal + nominal
+        hasil = self.sesi_admin("9\n" + target + "\n" + str(nominal) + "\n")
+        self.cek_exit(hasil)
+        self.assert_teks(hasil, "--- ISI SALDO PELANGGAN ---")
+        self.assert_teks(hasil, "Masukan username pelanggan:")
+        self.assert_teks(hasil, "Saldo saat ini:")
+        self.assert_rupiah(hasil, saldo_awal)
+        self.assert_teks(hasil, "Masukan nominal isi saldo:")
+        self.assert_teks(hasil, "Isi saldo berhasil! Saldo " + target + " sekarang")
+        self.assert_rupiah(hasil, harap)
+        self.assert_teks(hasil, "9. Isi Saldo Pelanggan")
+        self.assert_teks(hasil, "10. Logout Admin")
+        self.assert_teks(hasil, "Pilih menu (1-10):")
+
+        users = self.baca_users_hasil()
+        self.assertEqual(users[target]["balance"], harap)
+        for nama in self.fixture_users():
+            if nama == target:
+                continue
+            self.assertEqual(users[nama], self.fixture_users()[nama],
+                             msg=f"user {nama} ikut berubah")
+        log_topup = self.assert_log_ada(username="admin", action="TOPUP")
+        detail = str(log_topup.get("detail", ""))
+        bagian_user, _, bagian_nominal = detail.partition(":")
+        self.assertEqual(bagian_user, target)
+        self.assertEqual(float(bagian_nominal), float(nominal))
+
+    def test_isi_saldo_username_tidak_ada(self):
+        hasil = self.sesi_admin("9\nhantu\n")
+        self.cek_exit(hasil)
+        self.assert_teks(hasil, "User tidak ditemukan.")
+        self.assert_data_tetap()
+        self.assert_log_tidak_ada(action="TOPUP")
+
+    def test_isi_saldo_username_kosong(self):
+        hasil = self.sesi_admin("9\n\n")
+        self.cek_exit(hasil)
+        self.assert_teks(hasil, "User tidak ditemukan.")
+        self.assert_data_tetap()
+        self.assert_log_tidak_ada(action="TOPUP")
+
+    def test_isi_saldo_role_admin_ditolak(self):
+        target = next(nama for nama, user in self.fixture_users().items()
+                      if user.get("role") == "admin")
+        hasil = self.sesi_admin("9\n" + target + "\n50000\n")
+        self.cek_exit(hasil)
+        self.assert_teks(hasil, "Hanya akun pelanggan yang bisa diisi saldo.")
+        self.assert_data_tetap()
+        self.assert_log_tidak_ada(action="TOPUP")
+
+    def test_isi_saldo_nominal_invalid(self):
+        target = self._target_customer()
+        saldo_awal = self.saldo_awal(target)
+        for nominal in ("abc", "0", "-5", "1.5"):
+            with self.subTest(nominal=nominal):
+                self.pulihkan_data()
+                hasil = self.sesi_admin("9\n" + target + "\n" + nominal + "\n")
+                self.cek_exit(hasil)
+                self.assert_teks(hasil, "Nominal isi saldo tidak valid!")
+                self.assert_saldo(target, saldo_awal)
+                self.assert_log_tidak_ada(action="TOPUP")
 
 
 # ---------------------------------------------------------------------------

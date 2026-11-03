@@ -84,9 +84,9 @@
     "username": "Prabu",
     "pin_hash": "b3e7b5bc0cb9c52ee7bfd5602b12b819de7142f215c54eb036e23f0a2f991c7b",
     "salt": "2341cbc813b03c2b",
-    "balance": 999350000.0,
+    "balance": 999150000.0,
     "daily_limit": 500000.0,
-    "role": "customer",
+    "role": "admin",
     "is_locked": false,
     "failed_attempts": 0,
     "finger_id": "11733",
@@ -104,7 +104,33 @@
             "qty": 10
           }
         ]
+      },
+      {
+        "id": "TRX-20261104012906",
+        "date": "2026-11-04T01:29:06",
+        "total": 200000.0,
+        "risk_score": 3,
+        "items": [
+          {
+            "id": "P005",
+            "name": "Kopi Sachet",
+            "price": 2000.0,
+            "qty": 100
+          }
+        ]
       }
     ]
+  },
+  "Budhea": {
+    "username": "Budhea",
+    "pin_hash": "0863de41e9d6186ec385d44e9e2b8fa15183c9755998e02accd8615ae4a2e7dc",
+    "salt": "dcd344a631466c87",
+    "balance": 0.0,
+    "daily_limit": 500000.0,
+    "role": "admin",
+    "is_locked": false,
+    "failed_attempts": 0,
+    "finger_id": "",
+    "transactions": []
   }
 }

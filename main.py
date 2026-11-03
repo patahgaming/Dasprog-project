@@ -47,7 +47,11 @@ def LoginFingerFlow():
         print("Akun terblokir karena percobaan PIN salah berulang kali. Hubungi Admin.")
         return
     print("Sidik jari dikenali: " + user["username"] + ".")
-    customer.CustomerMenu(user, metode_login='sidik_jari')
+    if user["role"] == "admin":
+        print("Login berhasil! Selamat datang, admin.")
+        admin.AdminMenu()
+    else:
+        customer.CustomerMenu(user, metode_login='sidik_jari')
 
 
 def RegisterFlow():

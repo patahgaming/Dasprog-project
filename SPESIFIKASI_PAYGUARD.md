@@ -22,23 +22,26 @@ memakai `if __name__ == "__main__":` di bagian bawah.
 
 | File | Pemilik | Fungsi utama |
 |---|---|---|
-| `main.py` | Anggota 1 | splash screen, menu utama (Login/Register/Keluar), routing role |
+| `main.py` | Anggota 1 | splash screen, menu utama (Login/Register/Login Sidik Jari/Keluar), routing role |
 | `auth.py` | Anggota 2 | hash+salt PIN, RegisterUser, LoginUser, VerifyPIN, LogoutUser |
-| `admin.py` | Anggota 1 | CRUD produk, audit log, buka blokir akun |
-| `customer.py` | Anggota 3 | top up, cari/belanja, pengurutan, keranjang, checkout, riwayat |
+| `admin.py` | Anggota 1 | CRUD produk, audit log, buka blokir akun, isi saldo pelanggan |
+| `customer.py` | Anggota 3 | lihat saldo, cari/belanja, pengurutan, keranjang, checkout, riwayat |
 | `risk_assistant.py` | Anggota 2 | heuristic risk engine + tampilan Risk Shield |
+| `fingerprint.py` | Anggota 2 | klien X100C, event sidik jari, anti-replay |
 | `data_manager.py` | Lead (final) | I/O JSON: users/products/logs, log, id produk, rupiah |
 | `data/users.json` | Lead (final) | data pengguna |
 | `data/products.json` | Lead (final) | katalog produk |
 | `data/logs.json` | Lead (final) | audit trail |
+| `data/perangkat.json` | deployment | default config X100C (simulasi; override `.env`) |
+| `data/keranjang.json` | Lead (final) | keranjang tertahan (hold) |
 | `tests/` | QA | unittest stdlib + fixtures |
 
 Dependensi import (jangan dibalik, tidak boleh circular):
 
 ```
-main      -> auth, admin, customer
-admin     -> data_manager
-customer  -> data_manager, risk_assistant, auth (VerifyPIN, LogoutUser)
+main      -> auth, admin, customer, fingerprint
+admin     -> data_manager, fingerprint, customer
+customer  -> data_manager, risk_assistant, auth, fingerprint
 risk      -> data_manager (boleh) / hanya stdlib
 auth      -> data_manager
 ```
@@ -135,7 +138,8 @@ Pilih menu (1-4):
 - `4` -> `Terima kasih telah menggunakan PayGuard.` exit code 0.
 - `3` Login sidik jari: detail alur & pesan ada di `SPESIFIKASI_SIDIK_JARI.md` §5.1.
   Ringkas: tap sidik jari di X100C -> `Sidik jari dikenali: <username>.` ->
-  `CustomerMenu(user, metode_login='sidik_jari')` (checkout tanpa PIN).
+  role `admin` -> `AdminMenu()` (dadm login admin via sidik jari);
+  role customer -> `CustomerMenu(user, metode_login='sidik_jari')` (checkout tanpa PIN).
 - `1` LoginFlow:
   ```
   --- LOGIN ---
@@ -204,10 +208,10 @@ Pilih menu (1-4):
 
 ### 4.4 `customer.py`
 
-Menu (PDF):
+Menu (PDF, disesuaikan: top up dipindah ke admin):
 ```
 === MENU PELANGGAN ===
-1. Lihat Saldo & Top Up
+1. Lihat Saldo
 2. Cari & Belanja Produk
 3. Pengurutan Katalog
 4. Lihat Keranjang & Checkout
@@ -222,12 +226,8 @@ Cart adalah state sesi (modul), bukan di users.json:
 - `AddToCart(product, qty)` : gabung item dengan id sama (qty ditambah).
 - `ClearUserCart(current_user)` : kosongkan cart.
 
-1. `HandleTopUp(current_user)`:
-   - print `Saldo saat ini: <Rp>`
-   - `Masukan nominal top up: ` ; valid jika angka > 0, selain itu
-     `Nominal top up tidak valid!`
-   - sukses: balance bertambah; `simpan_users`; `catat_log(username,"TOPUP", str(nominal))`;
-     print `Top up berhasil! Saldo baru: <Rp>`
+1. `LihatSaldo(current_user)`: print `Saldo Anda: <Rp>.`
+   (Customer **tidak** bisa top up; top up dilakukan admin — §4.5.9.)
 2. `SearchAndBrowseMarketplace(current_user)`:
    - `Masukan kata kunci produk: ` ; tampilkan produk yang name/id-nya mengandung
      kata kunci (case-insensitive), format baris:
@@ -303,8 +303,9 @@ Helper yang harus ada: `CreateReceipt(cart, total_price, risk_score) -> dict`
 6. Buka Blokir Akun Pelanggan
 7. Kelola Sidik Jari (X100C)
 8. Kelola Keranjang Tertahan
-9. Logout Admin
-Pilih menu (1-9):
+9. Isi Saldo Pelanggan
+10. Logout Admin
+Pilih menu (1-10):
 ```
 
 1. `CreateProduct()`:
@@ -339,7 +340,18 @@ Pilih menu (1-9):
      `Akun '<username>' berhasil dibuka blokirnya.`
 7. `MenuSidikJari()` -> kelola pendaftaran sidik jari X100C (daftar/hapus/lihat/
    tes koneksi); detail menu & pesan persis di `SPESIFIKASI_SIDIK_JARI.md` §5.3.
-8. Logout -> `Logout berhasil.`; return.
+8. `MenuKeranjangTertahan()` -> hold keranjang: list/cancel/restore
+   (`SPESIFIKASI_HOLD_KERANJANG.md` §4).
+9. `IsiSaldoPelanggan()`:
+   - `Masukan username pelanggan: `; tidak ada -> `User tidak ditemukan.`;
+     role bukan customer -> `Hanya akun pelanggan yang bisa diisi saldo.`
+   - print `Saldo saat ini: <Rp>`
+   - `Masukan nominal isi saldo: `; bukan angka bulat / <= 0 ->
+     `Nominal isi saldo tidak valid!`
+   - sukses: balance target bertambah; simpan users;
+     `catat_log("admin","TOPUP","<username>:<nominal>")`;
+     print `Isi saldo berhasil! Saldo <username> sekarang <Rp>.`
+10. Logout -> `catat_log("admin","LOGOUT")`, `Logout berhasil.`; return.
 
 ## 5. Aturan bisnis penting
 

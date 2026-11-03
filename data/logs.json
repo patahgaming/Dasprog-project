@@ -70,5 +70,47 @@
     "username": "Prabu",
     "action": "CHECKOUT_FINGER_RP_650000",
     "detail": "TRX-20261104000037"
+  },
+  {
+    "time": "2026-11-04T01:26:48",
+    "username": "Prabu",
+    "action": "LOGOUT",
+    "detail": ""
+  },
+  {
+    "time": "2026-11-04T01:28:06",
+    "username": "Prabu",
+    "action": "HOLD_CART",
+    "detail": "HOLD-20261104012806:200000.0"
+  },
+  {
+    "time": "2026-11-04T01:29:06",
+    "username": "Prabu",
+    "action": "CHECKOUT_FINGER_RP_200000",
+    "detail": "TRX-20261104012906"
+  },
+  {
+    "time": "2026-11-04T01:29:17",
+    "username": "Prabu",
+    "action": "LOGOUT",
+    "detail": ""
+  },
+  {
+    "time": "2026-11-04T01:33:40",
+    "username": "Budhea",
+    "action": "REGISTER",
+    "detail": "akun baru"
+  },
+  {
+    "time": "2026-11-04T01:33:49",
+    "username": "Budhea",
+    "action": "LOGIN_SUCCESS",
+    "detail": ""
+  },
+  {
+    "time": "2026-11-04T01:34:35",
+    "username": "Budhea",
+    "action": "LOGIN_SUCCESS",
+    "detail": ""
   }
 ]

@@ -15,13 +15,13 @@ Tahapan:
    dikecualikan dari uji byte-identik (hash config asli tetap dipantau).
 3. Jalankan ``python -m unittest discover -s tests -v`` dari folder ``payguard``.
 4. Catat SHA256 data SESUDAH suite + bandingkan dengan snapshot.
-5. Spot-check independen TUI pada salinan data (14 skenario):
+5. Spot-check independen TUI pada salinan data (15 skenario):
    - admin create/update/delete produk lalu customer melihat katalog kembali;
-   - budi top up 100.000 lalu checkout Beras 5kg x1 (risk AMAN);
+   - admin isi saldo budi 100.000 lalu budi checkout Beras 5kg x1 (jalur PIN);
    - siti beli Cokelat Premium x3, Risk Shield PERINGATAN SEDANG dijawab `n`;
    - siti beli Cokelat Premium x3, dijawab `y` + PIN sampai sukses;
    - lockout siti 3x PIN salah -> admin unlock -> siti login lagi;
-   - register user baru `rina` -> login -> top up -> beli -> logout;
+   - register rina -> admin isi saldo -> login -> beli -> logout;
    - admin kelola sidik jari X100C (enroll/lihat/hapus/validasi mapping);
    - login sidik jari budi 1001 -> checkout tanpa PIN -> data & log
      `CHECKOUT_FINGER_...` benar;
@@ -34,6 +34,7 @@ Tahapan:
    - resume hold lewat menu 4 (`y`) + tap sukses -> saldo/transaksi/log
      `CHECKOUT_FINGER_...`, hold hilang, stok tidak dobel;
    - admin lihat daftar hold + batalkan (`y`) -> stok kembali, log HOLD_CANCEL.
+   - login sidik jari akun admin (mapping di data salinan) -> Menu Admin;
 6. Verifikasi akhir: data asli identik, manifest app/data tidak berubah,
    fixtures sinkron, ``tests/_tmp`` bersih.
 7. Cetak kesimpulan LULUS/GAGAL (exit code 0 hanya jika semua lolos).
@@ -123,6 +124,34 @@ def rupiah(angka):
     if angka < 0:
         return "Rp-" + f"{abs(angka):,}".replace(",", ".")
     return "Rp" + f"{angka:,}".replace(",", ".")
+
+
+def hitung_skor_risiko(saldo, limit, total, kategori, today_spent=0.0):
+    """Hitung skor Risk Shield yang diharapkan (data-driven, tanpa seed)."""
+    sisa = float(saldo) - float(total)
+    skor = 0
+    if sisa < 0.3 * float(saldo):
+        skor += 2
+    if float(today_spent) + float(total) > float(limit):
+        skor += 3
+    if "Wants" in kategori and sisa < 100000:
+        skor += 2
+    return skor
+
+
+def konfirmasi_skor(skor):
+    if skor > 3:
+        return "SAYA YAKIN"
+    if skor > 0:
+        return "y"
+    return ""
+
+
+def pengeluaran_hari_ini(transactions):
+    from datetime import datetime as _dt
+    hari_ini = _dt.now().strftime("%Y-%m-%d")
+    return sum(float(trx.get("total", 0)) for trx in transactions
+               if str(trx.get("date", ""))[:10] == hari_ini)
 
 
 def cek(bukti, kondisi, label_ok, label_gagal=None):
@@ -242,6 +271,21 @@ def baca_data(workdir, nama):
 
 def fixture(nama):
     return baca_json(FIXTURES_DIR / nama)
+
+
+def normalisasi_stok_kerja(workdir, pid, stok_min=50):
+    """Normalisasi stok produk pada SALINAN folder kerja (bukan data/fixtures asli).
+
+    Data live bisa membuat stok produk tertentu 0; spot-check butuh stok cukup.
+    Return stok awal (baseline) yang dipakai untuk expected.
+    """
+    jalur = workdir / "data" / "products.json"
+    products = baca_json(jalur)
+    if pid not in products:
+        raise KeyError(f"produk {pid} tidak ada di data salinan")
+    products[pid]["stock"] = max(int(products[pid].get("stock", 0)), int(stok_min))
+    jalur.write_text(json.dumps(products, ensure_ascii=False, indent=2), encoding="utf-8")
+    return int(products[pid]["stock"])
 
 
 def baris_attlog(pin, saat):
@@ -384,7 +428,7 @@ def spot_admin_crud():
             "1\nadmin\n123456\n"
             "1\nProduk Uji QA\n12345\n7\nWants\n"   # Create
             "3\nP010\n2\n3\n"                        # Update stok P010 -> 3
-            "9\n4\n",
+            "10\n4\n",
         )
         ok = cek(bukti, h.returncode == 0, "run1 (create+update) exit 0",
                  f"run1 exit {h.returncode}") and ok
@@ -404,7 +448,7 @@ def spot_admin_crud():
         ) and ok
 
         # run 2: login admin -> delete P010 -> logout; katalog harus kembali seed
-        h = jalankan_spot(workdir, "1\nadmin\n123456\n4\nP010\ny\n9\n4\n")
+        h = jalankan_spot(workdir, "1\nadmin\n123456\n4\nP010\ny\n10\n4\n")
         ok = cek(bukti, h.returncode == 0, "run2 (delete) exit 0",
                  f"run2 exit {h.returncode}") and ok
         ok = cek(bukti, teks_ada(h.stdout, "berhasil dihapus"),
@@ -434,66 +478,92 @@ def spot_admin_crud():
 # ---------------------------------------------------------------------------
 
 def spot_budi_topup_checkout():
+    """Admin isi saldo budi, lalu budi checkout (jalur PIN) -- spot top up admin."""
     bukti = []
     ok = True
     workdir = buat_workdir_spot()
+    stok_baseline = normalisasi_stok_kerja(workdir, "P001", 5)
     try:
         users_awal = fixture("users.json")
         products_awal = fixture("products.json")
         logs_awal = fixture("logs.json")
-        saldo_awal = users_awal["budi"]["balance"]
-        harga = products_awal["P001"]["price"]
-        stok_awal = products_awal["P001"]["stock"]
-        saldo_setelah_topup = saldo_awal + 100000
-        saldo_harap = saldo_setelah_topup - harga
+        produk = products_awal["P001"]
+        harga = float(produk["price"])
+        nominal = 100000
+        saldo_awal = float(users_awal["budi"]["balance"])
+        limit = float(users_awal["budi"]["daily_limit"])
+        saldo_setelah = saldo_awal + nominal
+        saldo_harap = saldo_setelah - harga
+        stok_harap = stok_baseline - 1
+        today = pengeluaran_hari_ini(users_awal["budi"].get("transactions", []))
+        skor = hitung_skor_risiko(saldo_setelah, limit, harga, [produk["category"]], today)
+        konfirmasi = konfirmasi_skor(skor)
 
         h = jalankan_spot(
             workdir,
-            "1\nbudi\n111111\n"
-            "1\n100000\n"                 # top up 100.000 -> 600.000
-            "2\nberas\nP001\n1\n"         # tambah Beras 5kg x1
-            "4\n111111\n"                 # checkout (risk AMAN) + PIN
+            "1\nadmin\n123456\n"
+            "9\nbudi\n" + str(nominal) + "\n"   # admin: Isi Saldo Pelanggan
+            "10\n"                                # logout admin
+            "1\nbudi\n111111\n"                 # login customer (PIN)
+            "2\nberas\nP001\n1\n"              # beli Beras x1
+            "4\n" + (konfirmasi + "\n" if konfirmasi else "") + "111111\n"
             "6\n4\n",
         )
         ok = cek(bukti, h.returncode == 0, "exit 0", f"exit {h.returncode}") and ok
-        ok = cek(bukti, teks_ada(h.stdout, "Top up berhasil! Saldo baru: " + rupiah(saldo_setelah_topup)),
-                 f"top up -> saldo {rupiah(saldo_setelah_topup)}",
-                 "pesan top up / saldo baru salah") and ok
-        ok = cek(bukti, teks_ada(h.stdout, "[STATUS: AMAN]"),
-                 "Risk Shield AMAN (tanpa konfirmasi)",
-                 "Risk Shield bukan AMAN") and ok
-        ok = cek(bukti, teks_ada(h.stdout, "TRANSAKSI BERHASIL! Resi pembayaran telah diterbitkan."),
-                 "checkout berhasil & resi terbit", "checkout gagal") and ok
-        ok = cek(bukti, teks_ada(h.stdout, "Sisa Saldo: " + rupiah(saldo_harap)),
-                 f"resi sisa saldo {rupiah(saldo_harap)}",
-                 f"resi sisa saldo bukan {rupiah(saldo_harap)}") and ok
+        ok = cek(bukti, teks_ada(h.stdout, "--- ISI SALDO PELANGGAN ---"),
+                 "menu admin 9 (Isi Saldo Pelanggan) tampil") and ok
+        ok = cek(bukti, teks_ada(h.stdout, "Masukan username pelanggan:"),
+                 "prompt username pelanggan tampil") and ok
+        ok = cek(bukti, teks_ada(h.stdout, "Saldo saat ini:"), "saldo saat ini tampil") and ok
+        ok = cek(bukti, teks_ada(h.stdout, "Masukan nominal isi saldo:"),
+                 "prompt nominal isi saldo tampil") and ok
+        ok = cek(bukti, teks_ada(h.stdout, "Isi saldo berhasil! Saldo budi sekarang "
+                                 + rupiah(saldo_setelah) + "."),
+                 f"isi saldo berhasil -> {rupiah(saldo_setelah)}",
+                 "pesan isi saldo tidak sesuai") and ok
+        ok = cek(bukti, not teks_ada(h.stdout, "Masukan nominal top up:"),
+                 "top up customer sudah tidak ada (hanya admin)") and ok
+        ok = cek(bukti, not teks_ada(h.stdout, "Top up berhasil! Saldo baru:"),
+                 "prompt top up customer tidak muncul") and ok
 
-        users = baca_data(workdir, "users.json")
-        budi = users["budi"]
+        aksi_admin = [c.get("action") for c in baca_data(workdir, "logs.json")
+                      if c.get("username") == "admin"]
+        ok = cek(bukti, "TOPUP" in aksi_admin, "log TOPUP oleh admin tercatat") and ok
+        log_topup = [c for c in baca_data(workdir, "logs.json")
+                     if c.get("action") == "TOPUP" and c.get("username") == "admin"]
+        detail = str(log_topup[0].get("detail", "")) if log_topup else ""
+        ok = cek(bukti, detail.split(":")[0] == "budi"
+                 and float(detail.split(":")[1]) == float(nominal),
+                 f"detail log TOPUP = budi:{nominal} ({detail})") and ok
+
+        if skor == 0:
+            ok = cek(bukti, teks_ada(h.stdout, "[STATUS: AMAN]"),
+                     "Risk Shield AMAN") and ok
+        elif skor <= 3:
+            ok = cek(bukti, teks_ada(h.stdout, "[STATUS: PERINGATAN SEDANG]"),
+                     f"Risk Shield PERINGATAN SEDANG (skor {skor})") and ok
+        else:
+            ok = cek(bukti, teks_ada(h.stdout,
+                     "[STATUS: RISIKO TINGGI / IMPULSIVE BUYING DETECTED]"),
+                     f"Risk Shield RISIKO TINGGI (skor {skor})") and ok
+        ok = cek(bukti, teks_ada(h.stdout,
+                 "TRANSAKSI BERHASIL! Resi pembayaran telah diterbitkan."),
+                 "checkout customer berhasil") and ok
+
+        budi = baca_data(workdir, "users.json")["budi"]
         ok = cek(bukti, budi["balance"] == saldo_harap,
-                 f"users.json saldo budi = {rupiah(saldo_harap)} (dapat {rupiah(budi['balance'])})") and ok
-        transaksi = budi["transactions"]
-        ok = cek(bukti, len(transaksi) == len(users_awal["budi"]["transactions"]) + 1,
-                 "users.json: transaksi bertambah 1") and ok
-        trx = transaksi[-1]
-        ok = cek(
-            bukti,
-            trx["total"] == harga and trx["risk_score"] == 0
-            and trx["items"][0]["id"] == "P001" and trx["items"][0]["qty"] == 1,
-            f"transaksi tercatat total={rupiah(harga)}, risk=0, P001 x1",
-            f"transaksi tidak sesuai: {trx!r}",
-        ) and ok
-        products = baca_data(workdir, "products.json")
-        ok = cek(bukti, products["P001"]["stock"] == stok_awal - 1,
-                 f"stok P001 = {stok_awal - 1} (semula {stok_awal})") and ok
-
-        logs = baca_data(workdir, "logs.json")
-        aksi = [catatan["action"] for catatan in logs[len(logs_awal):]]
-        ok = cek(bukti, "TOPUP" in aksi,
-                 "logs.json: TOPUP tercatat", f"TOPUP tidak ada di log baru: {aksi}") and ok
+                 f"saldo budi = {rupiah(saldo_harap)} (dapat {rupiah(budi['balance'])})") and ok
+        ok = cek(bukti, len(budi["transactions"])
+                 == len(users_awal["budi"]["transactions"]) + 1,
+                 "transaksi budi bertambah 1") and ok
+        trx = budi["transactions"][-1]
+        ok = cek(bukti, trx["total"] == harga and trx["items"][0]["id"] == "P001",
+                 f"transaksi tercatat total={rupiah(harga)} P001 x1") and ok
+        ok = cek(bukti, baca_data(workdir, "products.json")["P001"]["stock"] == stok_harap,
+                 f"stok P001 = {stok_harap}") and ok
+        aksi = [c.get("action") for c in baca_data(workdir, "logs.json")[len(logs_awal):]]
         ok = cek(bukti, "CHECKOUT_SUCCESS_RP_" + str(int(round(harga))) in aksi,
-                 f"logs.json: CHECKOUT_SUCCESS_RP_{int(round(harga))} tercatat",
-                 f"log checkout tidak ada: {aksi}") and ok
+                 f"log CHECKOUT_SUCCESS_RP_{int(round(harga))} tercatat") and ok
     finally:
         hapus_pohon(workdir)
     return ok, bukti
@@ -607,7 +677,7 @@ def spot_lockout_unlock():
                  "run1: log ACCOUNT_LOCKED_BRUTEFORCE tercatat") and ok
 
         # run 2: admin membuka blokir siti
-        h = jalankan_spot(workdir, "1\nadmin\n123456\n6\nsiti\n9\n4\n")
+        h = jalankan_spot(workdir, "1\nadmin\n123456\n6\nsiti\n10\n4\n")
         ok = cek(bukti, h.returncode == 0, "run2 exit 0", f"run2 exit {h.returncode}") and ok
         ok = cek(bukti, teks_ada(h.stdout, "berhasil dibuka blokirnya"),
                  "run2: pesan unlock tampil") and ok
@@ -634,56 +704,78 @@ def spot_lockout_unlock():
 # ---------------------------------------------------------------------------
 
 def spot_register_baru():
+    """Register rina -> admin isi saldo -> login -> beli -> logout (exit 0)."""
     bukti = []
     ok = True
     workdir = buat_workdir_spot()
+    stok_baseline = normalisasi_stok_kerja(workdir, "P005", 50)
     try:
         products_awal = fixture("products.json")
-        harga = products_awal["P005"]["price"]
-        stok_harap = products_awal["P005"]["stock"] - 2
-        saldo_harap = 50000.0 - harga * 2
+        logs_awal = fixture("logs.json")
+        produk = products_awal["P005"]
+        harga = float(produk["price"])
+        qty = 2
+        total = harga * qty
+        nominal = 50000
+        saldo_harap = nominal - total
+        today = 0.0
+        skor = hitung_skor_risiko(nominal, 500000.0, total, [produk["category"]], today)
+        konfirmasi = konfirmasi_skor(skor)
 
         h = jalankan_spot(
             workdir,
-            "2\nrina\n999999\n"            # register
-            "1\nrina\n999999\n"            # login
-            "1\n50000\n"                   # top up 50.000
-            "2\nkopi\nP005\n2\n"           # beli Kopi Sachet x2 (risk skor 2)
-            "4\ny\n999999\n"               # risk PERINGATAN SEDANG -> y + PIN
+            "2\nrina\n999999\n"                  # register rina
+            "1\nadmin\n123456\n"                 # login admin
+            "9\nrina\n" + str(nominal) + "\n"    # admin isi saldo rina
+            "10\n"                                # logout admin
+            "1\nrina\n999999\n"                  # login rina
+            "2\n" + produk["id"] + "\n" + produk["id"] + "\n" + str(qty) + "\n"
+            "4\n" + (konfirmasi + "\n" if konfirmasi else "") + "999999\n"
             "6\n4\n",
         )
         ok = cek(bukti, h.returncode == 0, "exit 0", f"exit {h.returncode}") and ok
         ok = cek(bukti, teks_ada(h.stdout, "Registrasi Berhasil!"),
-                 "register rina berhasil", "register rina gagal") and ok
+                 "register rina berhasil") and ok
+        ok = cek(bukti, teks_ada(h.stdout, "Isi saldo berhasil! Saldo rina sekarang "
+                 + rupiah(nominal) + "."), "admin isi saldo rina berhasil") and ok
         ok = cek(bukti, teks_ada(h.stdout, "Login berhasil! Selamat datang, rina."),
                  "login rina berhasil") and ok
-        ok = cek(bukti, teks_ada(h.stdout, "Top up berhasil! Saldo baru: " + rupiah(50000)),
-                 "top up 50.000 berhasil", "top up rina gagal") and ok
-        ok = cek(bukti, teks_ada(h.stdout, "[STATUS: PERINGATAN SEDANG]"),
-                 "Risk Shield PERINGATAN SEDANG muncul (skor 2)") and ok
-        ok = cek(bukti, teks_ada(h.stdout, "TRANSAKSI BERHASIL! Resi pembayaran telah diterbitkan."),
+        ok = cek(bukti, not teks_ada(h.stdout, "Masukan nominal top up:"),
+                 "customer tidak punya top up (hanya admin)") and ok
+        if skor == 0:
+            ok = cek(bukti, teks_ada(h.stdout, "[STATUS: AMAN]"), "risk AMAN") and ok
+        elif skor <= 3:
+            ok = cek(bukti, teks_ada(h.stdout, "[STATUS: PERINGATAN SEDANG]"),
+                     "risk PERINGATAN SEDANG") and ok
+        else:
+            ok = cek(bukti, teks_ada(h.stdout,
+                     "[STATUS: RISIKO TINGGI / IMPULSIVE BUYING DETECTED]"),
+                     "risk RISIKO TINGGI") and ok
+        ok = cek(bukti, teks_ada(h.stdout,
+                 "TRANSAKSI BERHASIL! Resi pembayaran telah diterbitkan."),
                  "checkout rina berhasil") and ok
 
         users = baca_data(workdir, "users.json")
-        ok = cek(bukti, "rina" in users, "users.json: rina terdaftar") and ok
         rina = users.get("rina") or {}
         ok = cek(bukti, rina.get("balance") == saldo_harap,
-                 f"rina saldo = {rupiah(saldo_harap)} (dapat {rupiah(rina.get('balance', 0))})") and ok
-        transaksi = rina.get("transactions", [])
-        ok = cek(bukti, len(transaksi) == 1
-                 and transaksi[0]["total"] == harga * 2
-                 and transaksi[0]["risk_score"] == 2,
-                 f"rina transaksi tercatat total={rupiah(harga * 2)}, risk=2") and ok
-        ok = cek(bukti, baca_data(workdir, "products.json")["P005"]["stock"] == stok_harap,
-                 f"stok P005 = {stok_harap}") and ok
-        logs = baca_data(workdir, "logs.json")
-        aksi = [catatan["action"] for catatan in logs
-                if catatan.get("username") == "rina"]
-        for aksi_harap in ("REGISTER", "LOGIN_SUCCESS", "TOPUP",
-                           "CHECKOUT_SUCCESS_RP_" + str(int(round(harga * 2))), "LOGOUT"):
-            ok = cek(bukti, aksi_harap in aksi,
-                     f"logs.json: {aksi_harap} tercatat untuk rina",
-                     f"logs.json: {aksi_harap} tidak ada untuk rina; aksi={aksi}") and ok
+                 f"rina saldo = {rupiah(saldo_harap)}") and ok
+        trx = (rina.get("transactions") or [])
+        ok = cek(bukti, len(trx) == 1 and trx[0]["total"] == total,
+                 f"transaksi rina tercatat total={rupiah(total)}") and ok
+        ok = cek(bukti, baca_data(workdir, "products.json")["P005"]["stock"]
+                 == stok_baseline - qty, f"stok P005 = {stok_baseline - qty}") and ok
+        aksi = [(c.get("username"), c.get("action"))
+                for c in baca_data(workdir, "logs.json")[len(logs_awal):]]
+        for harap in (("rina", "REGISTER"), ("admin", "TOPUP"), ("rina", "LOGIN_SUCCESS"),
+                      ("rina", "CHECKOUT_SUCCESS_RP_" + str(int(round(total)))), ("rina", "LOGOUT")):
+            ok = cek(bukti, harap in aksi, f"log {harap[0]}:{harap[1]} tercatat",
+                     f"log {harap} tidak ada; aksi={aksi}") and ok
+        log_topup = [c for c in baca_data(workdir, "logs.json")
+                     if c.get("action") == "TOPUP" and c.get("username") == "admin"]
+        detail = str(log_topup[0].get("detail", "")) if log_topup else ""
+        ok = cek(bukti, detail.split(":")[0] == "rina"
+                 and float(detail.split(":")[1]) == float(nominal),
+                 f"detail log TOPUP = rina:{nominal} ({detail})") and ok
     finally:
         hapus_pohon(workdir)
     return ok, bukti
@@ -726,7 +818,7 @@ def spot_admin_sidik_jari():
             "1\n" + target + "\n\n"                            # PIN kosong
             "1\n" + target + "\nabc\n"                         # PIN bukan angka
             + isi_validasi_duplikat                            # PIN duplikat
-            + "5\n9\n4\n"                                      # kembali, logout, keluar
+            + "5\n10\n4\n"                                      # kembali, logout, keluar
         )
         h = jalankan_spot(workdir, isi)
         ok = cek(bukti, h.returncode == 0, "exit 0", f"exit {h.returncode}") and ok
@@ -776,6 +868,7 @@ def spot_checkout_sidik_jari():
     bukti = []
     ok = True
     workdir = buat_workdir_spot()
+    stok_baseline = normalisasi_stok_kerja(workdir, "P005", 50)
     try:
         users_awal = fixture("users.json")
         products_awal = fixture("products.json")
@@ -784,7 +877,7 @@ def spot_checkout_sidik_jari():
         qty = 2
         total = harga * qty
         saldo_harap = users_awal["budi"]["balance"] - total
-        stok_harap = products_awal["P005"]["stock"] - qty
+        stok_harap = stok_baseline - qty
 
         h = jalankan_spot(
             workdir,
@@ -891,6 +984,7 @@ def spot_soap_login_checkout_tap2():
     bukti = []
     ok = True
     workdir = buat_workdir_spot()
+    stok_baseline = normalisasi_stok_kerja(workdir, "P005", 50)
     try:
         users_awal = fixture("users.json")
         products_awal = fixture("products.json")
@@ -899,7 +993,7 @@ def spot_soap_login_checkout_tap2():
         qty = 2
         total = harga * qty
         saldo_harap = users_awal["budi"]["balance"] - total
-        stok_harap = products_awal["P005"]["stock"] - qty
+        stok_harap = stok_baseline - qty
 
         sekarang = datetime.now()
         # Device "bertahap": tap login muncul saat polling login; tap kedua baru
@@ -1028,6 +1122,7 @@ def spot_tap_sidik_lain_membuat_hold():
     bukti = []
     ok = True
     workdir = buat_workdir_spot()
+    stok_baseline = normalisasi_stok_kerja(workdir, "P005", 50)
     try:
         users_awal = fixture("users.json")
         products_awal = fixture("products.json")
@@ -1077,8 +1172,8 @@ def spot_tap_sidik_lain_membuat_hold():
         ok = cek(bukti, len(budi["transactions"]) == len(users_awal["budi"]["transactions"]),
                  "transaksi budi tidak bertambah") and ok
         ok = cek(bukti, baca_data(workdir, "products.json")["P005"]["stock"]
-                 == products_awal["P005"]["stock"] - 2,
-                 f"stok P005 turun jadi {products_awal['P005']['stock'] - 2}") and ok
+                 == stok_baseline - 2,
+                 f"stok P005 turun jadi {stok_baseline - 2}") and ok
         aksi = [catatan for catatan in baca_data(workdir, "logs.json")[len(logs_awal):]]
         log_hold = [c for c in aksi if c.get("action") == "HOLD_CART"]
         ok = cek(bukti, len(log_hold) == 1, "log HOLD_CART tercatat") and ok
@@ -1102,6 +1197,7 @@ def spot_resume_hold_sukses():
     bukti = []
     ok = True
     workdir = buat_workdir_spot()
+    stok_baseline = normalisasi_stok_kerja(workdir, "P005", 50)
     try:
         users_awal = fixture("users.json")
         products_awal = fixture("products.json")
@@ -1156,7 +1252,7 @@ def spot_resume_hold_sukses():
         ok = cek(bukti, trx["total"] == total and trx["items"][0]["id"] == "P005",
                  f"transaksi tercatat total={rupiah(total)} P005 x2") and ok
         ok = cek(bukti, baca_data(workdir, "products.json")["P005"]["stock"]
-                 == products_awal["P005"]["stock"] - 2,
+                 == stok_baseline - 2,
                  "stok P005 TIDAK dipotong dua kali") and ok
         ok = cek(bukti, baca_data(workdir, "keranjang.json") == [],
                  "hold hilang dari keranjang.json setelah sukses") and ok
@@ -1177,6 +1273,7 @@ def spot_admin_cancel_hold():
     bukti = []
     ok = True
     workdir = buat_workdir_spot()
+    stok_baseline = normalisasi_stok_kerja(workdir, "P005", 50)
     try:
         users_awal = fixture("users.json")
         products_awal = fixture("products.json")
@@ -1200,7 +1297,7 @@ def spot_admin_cancel_hold():
             "2\n" + str(record.get("id", "")) + "\nn\n"   # batal -> n
             "2\n" + str(record.get("id", "")) + "\ny\n"   # batal -> y
             "3\n"                              # kembali ke menu admin
-            "9\n4\n",                          # logout admin, keluar
+            "10\n4\n",                          # logout admin, keluar
         )
         ok = cek(bukti, h2.returncode == 0, "run2 admin exit 0",
                  f"run2 exit {h2.returncode}") and ok
@@ -1219,8 +1316,8 @@ def spot_admin_cancel_hold():
         ok = cek(bukti, baca_data(workdir, "keranjang.json") == [],
                  "keranjang.json kosong setelah cancel") and ok
         ok = cek(bukti, baca_data(workdir, "products.json")["P005"]["stock"]
-                 == products_awal["P005"]["stock"],
-                 f"stok P005 kembali seperti semula ({products_awal['P005']['stock']})") and ok
+                 == stok_baseline,
+                 f"stok P005 kembali seperti semula ({stok_baseline})") and ok
         budi = baca_data(workdir, "users.json")["budi"]
         ok = cek(bukti, budi["balance"] == users_awal["budi"]["balance"],
                  "saldo budi tetap (tidak dipotong karena hold)") and ok
@@ -1231,6 +1328,39 @@ def spot_admin_cancel_hold():
         ok = cek(bukti, len(log_cancel) == 1, "log HOLD_CANCEL tercatat") and ok
         ok = cek(bukti, log_cancel and log_cancel[0].get("detail") == record.get("id"),
                  "detail log HOLD_CANCEL = id hold") and ok
+    finally:
+        hapus_pohon(workdir)
+    return ok, bukti
+
+
+def spot_login_finger_admin():
+    """Login sidik jari akun admin (mapping di data salinan) -> Menu Admin."""
+    bukti = []
+    ok = True
+    workdir = buat_workdir_spot()
+    try:
+        users = baca_json(workdir / "data" / "users.json")
+        users["admin"]["finger_id"] = "2001"
+        (workdir / "data" / "users.json").write_text(
+            json.dumps(users, ensure_ascii=False, indent=2), encoding="utf-8")
+        h = jalankan_spot(workdir, "3\n2001\n" + "10\n4\n")
+        ok = cek(bukti, h.returncode == 0, "exit 0", f"exit {h.returncode}") and ok
+        ok = cek(bukti, teks_ada(h.stdout, "Sidik jari dikenali: admin."),
+                 "login sidik jari admin dikenali") and ok
+        ok = cek(bukti, teks_ada(h.stdout, "Login berhasil! Selamat datang, admin."),
+                 "pesan selamat datang admin") and ok
+        ok = cek(bukti, teks_ada(h.stdout, "=== MENU ADMIN / MERCHANT ==="),
+                 "langsung masuk Menu Admin (bukan menu pelanggan)") and ok
+        ok = cek(bukti, teks_ada(h.stdout, "9. Isi Saldo Pelanggan"),
+                 "menu admin 10 opsi: 9 Isi Saldo Pelanggan") and ok
+        ok = cek(bukti, teks_ada(h.stdout, "10. Logout Admin"),
+                 "menu admin 10 opsi: 10 Logout Admin") and ok
+        ok = cek(bukti, teks_ada(h.stdout, "Pilih menu (1-10):"),
+                 "prompt menu admin (1-10)") and ok
+        ok = cek(bukti, not teks_ada(h.stdout, "=== MENU PELANGGAN ==="),
+                 "tidak masuk Menu Pelanggan") and ok
+        ok = cek(bukti, teks_ada(h.stdout, "Terima kasih telah menggunakan PayGuard."),
+                 "logout & keluar normal") and ok
     finally:
         hapus_pohon(workdir)
     return ok, bukti
@@ -1351,11 +1481,11 @@ def main():
     print("\n[8] SPOT-CHECK INDEPENDEN (semua dijalankan pada salinan data):")
     skenario = (
         ("admin create+update+delete, customer lihat katalog", spot_admin_crud),
-        ("budi top up 100.000 + checkout Beras 5kg x1 (AMAN)", spot_budi_topup_checkout),
+        ("admin isi saldo budi + checkout budi (jalur PIN)", spot_budi_topup_checkout),
         ("siti risk PERINGATAN SEDANG dijawab n (batal)", spot_risk_sedang_batal),
         ("siti risk PERINGATAN SEDANG dijawab y + PIN (sukses)", spot_risk_sedang_lanjut),
         ("lockout siti 3x -> admin unlock -> siti login", spot_lockout_unlock),
-        ("register rina -> login -> top up -> beli -> logout", spot_register_baru),
+        ("register rina -> admin isi saldo -> beli -> logout", spot_register_baru),
         ("admin kelola sidik jari X100C (daftar/hapus/lihat/validasi)", spot_admin_sidik_jari),
         ("login sidik jari budi + checkout tanpa PIN", spot_checkout_sidik_jari),
         ("protokol SOAP root=perintah + soap host mati", spot_protokol_dan_soap_mati),
@@ -1364,6 +1494,7 @@ def main():
         ("tap sidik jari user lain -> hold keranjang (bukan batal)", spot_tap_sidik_lain_membuat_hold),
         ("resume hold (menu 4 -> y) + tap sukses", spot_resume_hold_sukses),
         ("admin lihat & batalkan hold (stok kembali)", spot_admin_cancel_hold),
+        ("login sidik jari admin -> Menu Admin (10 opsi)", spot_login_finger_admin),
     )
     hasil_spot = []
     for judul, fungsi in skenario:

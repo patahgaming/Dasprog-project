@@ -1,10 +1,10 @@
 # customer.py - menu pelanggan PayGuard CLI
-# Isi: lihat saldo & top up, cari/belanja produk, pengurutan katalog,
+# Isi: lihat saldo, cari/belanja produk, pengurutan katalog,
 # keranjang & checkout (PIN atau sidik jari X100C, termasuk hold keranjang saat
 # sidik jari gagal), riwayat transaksi & track record, logout.
+# Top up saldo hanya dapat dilakukan admin (tidak ada di menu pelanggan).
 # Gaya mengikuti project cashless: fungsi prosedural + TUI, stdlib saja.
 
-import math
 import os
 from datetime import datetime
 
@@ -190,27 +190,9 @@ def SaveTransactionToUserHistory(current_user, record):
     simpan_users(users)
 
 
-def HandleTopUp(current_user):
-    # menu 1: tampilkan saldo lalu tambah saldo e-wallet
-    print('Saldo saat ini: ' + rupiah(current_user['balance']))
-    teks_nominal = input('Masukan nominal top up: ').strip()
-    try:
-        nominal = float(teks_nominal)
-    except ValueError:
-        print('Nominal top up tidak valid!')
-        return
-    if not math.isfinite(nominal) or nominal <= 0:
-        print('Nominal top up tidak valid!')
-        return
-    # nominal bulat ditampilkan/dicatat sebagai bilangan bulat (mis. 100000, bukan 100000.0)
-    if nominal == int(nominal):
-        nominal = int(nominal)
-    current_user['balance'] = float(current_user['balance']) + nominal
-    users = baca_users()
-    users[current_user['username']] = current_user
-    simpan_users(users)
-    catat_log(current_user['username'], 'TOPUP', str(nominal))
-    print('Top up berhasil! Saldo baru: ' + rupiah(current_user['balance']))
+def LihatSaldo(current_user):
+    # menu 1: tampilkan saldo e-wallet saat ini (top up hanya oleh admin)
+    print('Saldo Anda: ' + rupiah(current_user['balance']) + '.')
 
 
 def SearchAndBrowseMarketplace(current_user):
@@ -420,7 +402,7 @@ def CustomerMenu(current_user, metode_login='pin'):
     # metode_login diteruskan ke checkout: 'pin' (biasa) atau 'sidik_jari' (X100C)
     while 1:
         print('=== MENU PELANGGAN ===')
-        print('1. Lihat Saldo & Top Up')
+        print('1. Lihat Saldo')
         print('2. Cari & Belanja Produk')
         print('3. Pengurutan Katalog')
         print('4. Lihat Keranjang & Checkout')
@@ -428,7 +410,7 @@ def CustomerMenu(current_user, metode_login='pin'):
         print('6. Logout')
         pilih = input('Pilih menu (1-6): ').strip()
         if pilih == '1':
-            HandleTopUp(current_user)
+            LihatSaldo(current_user)
         elif pilih == '2':
             SearchAndBrowseMarketplace(current_user)
         elif pilih == '3':

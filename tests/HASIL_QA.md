@@ -27,8 +27,15 @@ Acuan kontrak: [`SPESIFIKASI_PAYGUARD.md`](../SPESIFIKASI_PAYGUARD.md) (v1, §2�
 > dihitung dari fixtures/data live). Config deployment dipisah ke `.env`; fixtures
 > perangkat tetap **simulasi** (hermetis). Ringkasan: **§14**.
 >
+> **Ronde 7 — login sidik jari admin & top up oleh admin:** login sidik jari kini
+> mengikuti **role** (admin -> Menu Admin, customer -> Menu Pelanggan); customer
+> menu 1 hanya **Lihat Saldo** (top up dihapus); admin menu **10 opsi** dengan
+> **9. Isi Saldo Pelanggan** dan logout **10**. Suite + **7 test baru** (total
+> **147**); semua stdin admin (logout `9`->`10`) disesuaikan. Ringkasan: **§15**.
+>
 > Tabel di bawah ini adalah ringkasan ronde 1; status terbaru ada di **§11**
-> (ronde 2), **§12** (ronde 3), **§13** (ronde 5), dan **§14** (ronde 6).
+> (ronde 2), **§12** (ronde 3), **§13** (ronde 5), **§14** (ronde 6), dan **§15**
+> (ronde 7).
 
 | Item | Nilai |
 |---|---|
@@ -793,3 +800,88 @@ helper yang membaca fixtures/data live saat test berjalan:
 riwayat yang berubah: **140 test OK** dan **14/14 spot-check** pada data live
 terbaru, integritas data asli terjaga, suite tetap hermetis (fixtures simulasi;
 `.env` tidak ikut).
+
+---
+
+## 15. Ronde 7 — Login sidik jari admin & top up oleh admin — LULUS
+
+Kontrak: [`SPESIFIKASI_LOGIN_ADMIN_FINGER_DAN_TOPUP.md`](../SPESIFIKASI_LOGIN_ADMIN_FINGER_DAN_TOPUP.md).
+Dua perubahan akses: (1) login sidik jari mengikuti **role** akun — `admin` ->
+Menu Admin, `customer` -> Menu Pelanggan; (2) **top up hanya oleh admin**
+(customer menu 1 = hanya `Saldo Anda: ...`).
+
+### 15.1 Perubahan test (`payguard/tests/`)
+
+1. **Menu admin 10 opsi**: `assert_menu_admin` memuat `9. Isi Saldo Pelanggan` &
+   `10. Logout Admin` + prompt `Pilih menu (1-10):`; konstanta `LOGOUT_ADMIN`
+   `"9\n"` -> `"10\n"`; semua skenario stdin admin (test + verifikasi) memakai
+   logout `10`; test menu admin di `test_hold_keranjang` diperbarui ke 10 opsi.
+2. **Customer menu 1**: `assert_menu_customer` -> `1. Lihat Saldo`; kelas
+   `TestCustomerTopup` diganti `TestCustomerLihatSaldo` (2 test): menu 1 hanya
+   `Saldo Anda: <Rp>`, **tidak ada** prompt top up/nominal, data tidak berubah,
+   tidak ada log `TOPUP` dari customer.
+3. **Login sidik jari admin** (2 test baru di `TestLoginSidikJari`): helper
+   `set_finger_id_kerja()` menulis `finger_id` admin (mis. `2001`) ke **data
+   SALINAN folder kerja** (bukan fixtures/data asli); input simulasi `2001` ->
+   `Login berhasil! Selamat datang, admin.` + `=== MENU ADMIN / MERCHANT ===`
+   (10 opsi, prompt 1-10), **bukan** Menu Pelanggan; customer budi `1001` tetap
+   Menu Pelanggan. `.env` deployment tidak ikut ke workdir (hermetis).
+4. **Admin `9. Isi Saldo Pelanggan`** (5 test baru `TestAdminIsiSaldo`): sukses
+   (prompt username/saldo/nominal, saldo target naik, log `admin: TOPUP` detail
+   `<target>:<nominal>`, saldo user lain & admin tidak berubah); username kosong/
+   tidak ada -> `User tidak ditemukan.`; role admin ditolak -> `Hanya akun
+   pelanggan yang bisa diisi saldo.`; nominal `abc`/`0`/`-5`/`1.5` ditolak.
+   Target customer dipilih **dinamis** dari fixtures (`role == "customer"`),
+   tidak hardcode Prabu/budi.
+5. **Refactor test lama yang memakai top up customer**: setup saldo untuk
+   `test_checkout_saldo_pas_total_berhasil` (user baru `qabatas`) dan
+   `_siapkan_high_risk` (user baru `qa_high`) tidak lagi lewat menu customer —
+   daftar user lalu set `balance` langsung pada **data SALINAN workdir**
+   (fixtures-like setup). Cakupan fitur risk/checkout/saldo-pas tetap utuh.
+6. **Tahan data live baru** (suplemen Lead: `P005` & `P009` stok 0, Prabu admin,
+   Budhea admin, andi locked, NaNas saldo besar):
+   - Helper `produk_uji_checkout(min_stok)` + `cari_skenario_risk()` memilih
+     produk **yang stoknya > 0** (harga termurah) dari fixtures; tidak ada lagi
+     checkout/hold/risk yang hardcode `P005`.
+   - `_assert_hold_pertama`, checkout sidik jari, dan seluruh test
+     `test_hold_keranjang.py` memakai produk dinamis tsb.; resume/hold/admin
+     cancel memakai harga/stok hasil hitung.
+   - Driver unit hold menormalkan stok produk pada **salinan workdir** (>=100)
+     agar deterministic; expected stok = baseline - qty.
+   - `verifikasi_final.py`: helper `normalisasi_stok_kerja()` menormalkan stok
+     produk spot pada **salinan workdir** sebelum run; expected memakai baseline.
+   - Topup admin target & user test dipilih dinamis berdasarkan `role`
+     (`customer`), bukan asumsi Prabu customer.
+
+### 15.2 Hasil run ronde 7 (2026-11-04 01:46–01:48 WIB, serial)
+
+- `python -m unittest discover -s tests -v`: **Ran 147 tests in 32.535s → OK**
+  (147 ok, 0 failure/error, exit 0; 83 `test_payguard` + 47 `test_fingerprint`
+  + 17 `test_hold_keranjang`). Log: `_run_final_ronde7.log`.
+- `python tests\verifikasi_final.py`: exit code **0 — LULUS**; **15/15
+  spot-check OK** (termasuk *admin isi saldo budi + checkout budi*, *register
+  rina -> admin isi saldo -> beli -> logout*, dan *login sidik jari admin ->
+  Menu Admin 10 opsi*), cek [2] fixtures data byte-identik **YA**, integritas
+  **(a)–(f) YA**, manifest inti app/data 12 file tidak berubah.
+  Log: `_verifikasi_final_ronde7.log`.
+- Data live saat run: `P005`/`P009` stok **0**; `Prabu` & `Budhea` role
+  **admin**; andi locked; NaNas saldo 2.22e23; budi/siti customer; logs 19;
+  fixtures (users/products/logs/keranjang) **= data live** dan byte-identik
+  sebelum==sesudah suite; `tests/_tmp` bersih; fixtures perangkat **simulasi**;
+  `.env` tidak tersentuh/tidak disalin. Hash data akhir: users
+  `c87ed1f255d1ef899abcd009b4a5893aaf38bcdfb52acb472a7222c0f62155a1`,
+  products `079465eef8ca561f4e28c4ad7a843ac22a7219388fdedc15a174a8aaffd95b52`,
+  logs `65960ca2556f5b49ff3aa135b4a2846632ef2cde7ec8d4324344e1dce7b18bb5`,
+  keranjang `4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945`.
+- Catatan: fixture harus tetap **= data live** (jangan reset data asli); test
+  kini tahan terhadap stok/role berubah lewat pemilihan produk/customer
+  dinamis, normalisasi stok pada salinan workdir, dan `skipTest` bila premis
+  skenario tidak lagi didukung data live.
+
+### 15.3 Kesimpulan ronde 7
+
+**LAYAK — LULUS.** Kriteria §6 spesifikasi terpenuhi: sidik jari admin ->
+Menu Admin, sidik jari customer -> Menu Pelanggan; customer tidak bisa top up
+(hanya lihat saldo); admin bisa isi saldo customer (validasi & log
+`<target>:<nominal>`) di menu 9 dengan logout 10; **147 test OK**, **15/15
+spot-check**, integritas data asli terjaga, suite hermetis.

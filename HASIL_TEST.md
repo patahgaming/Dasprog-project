@@ -252,3 +252,49 @@ Kontrak: [`SPESIFIKASI_HOLD_KERANJANG.md`](SPESIFIKASI_HOLD_KERANJANG.md).
   PIN salah tetap tanpa hold. Semua exit 0 dan data sesuai.
 - `data/keranjang.json` asli tetap `[]` (belum ada hold nyata); data user Prabu dsb.
   tidak berubah karena fitur ini.
+
+## 11. Ronde 7 — Login Sidik Jari Admin & Top Up oleh Admin (2026-11-04)
+
+Kontrak: [`SPESIFIKASI_LOGIN_ADMIN_FINGER_DAN_TOPUP.md`](SPESIFIKASI_LOGIN_ADMIN_FINGER_DAN_TOPUP.md).
+
+### Perubahan akses
+
+- **Login sidik jari mengikuti role**: akun `admin` -> `Login berhasil! Selamat
+  datang, admin.` + **Menu Admin**; customer tetap Menu Pelanggan.
+  Admin harus punya `finger_id` (didaftarkan lewat menu `7. Kelola Sidik Jari`);
+  satu `finger_id` hanya untuk satu akun.
+- **Top up hanya oleh admin**: menu customer `1. Lihat Saldo` (tanpa top up);
+  admin punya menu `9. Isi Saldo Pelanggan` dan logout menjadi `10. Logout Admin`
+  (prompt `Pilih menu (1-10):`).
+- Isi saldo: validasi username/customer, nominal bulat > 0, update saldo, log
+  `admin: TOPUP` detail `<username>:<nominal>`.
+
+### Perubahan file
+
+| File | Perubahan |
+|---|---|
+| `main.py` | routing `LoginFingerFlow` berdasarkan `role` |
+| `customer.py` | menu `1. Lihat Saldo`, top up customer dihapus (`HandleTopUp` dihapus) |
+| `admin.py` | menu 10 opsi + `IsiSaldoPelanggan()` |
+| `tests/` | test admin fingerprint login, admin isi saldo, customer lihat saldo; menu 10; data-driven |
+| `SPESIFIKASI_PAYGUARD.md`, `SPESIFIKASI_SIDIK_JARI.md`, `README.md` | menu & alur diperbarui |
+| `SPESIFIKASI_LOGIN_ADMIN_FINGER_DAN_TOPUP.md` (baru) | kontrak ronde ini |
+
+### Hasil uji
+
+- **QA: 147 test OK** (140 lama + 7 test baru; 83 payguard + 47 fingerprint + 17 hold)
+  — semuanya data-driven terhadap data live (stok/role berubah).
+- `python tests\verifikasi_final.py`: **LULUS**, **15/15 spot-check** (termasuk login
+  sidik jari admin + admin isi saldo + antrian hold), integritas (a)–(f) YA, fixtures
+  data byte-identik, `tests/_tmp` bersih, `.env` tidak disalin.
+- Smoke Lead independen di salinan:
+  1. login sidik jari `Prabu` (role admin, finger `11733`) -> Menu Admin (bukan
+     Menu Pelanggan), opsi 9/10 tampil;
+  2. admin `9. Isi Saldo Pelanggan` -> budi +Rp100.000, log `TOPUP` detail
+     `budi:100000`;
+  3. customer `1. Lihat Saldo` -> `Saldo Anda: Rp500.000.`, tanpa prompt top up.
+  Semua exit 0.
+- Data live saat ronde ini berubah karena pengujian user: `Prabu` & `Budhea` role
+  admin, `P005`/`P009` stok 0, `NaNas` saldo besar, `andi` terkunci. Fixtures
+  disinkronkan dan test memilih produk/customer secara dinamis serta menormalkan
+  stok di **salinan** test.

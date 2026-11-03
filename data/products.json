@@ -31,7 +31,7 @@
     "id": "P005",
     "name": "Kopi Sachet",
     "price": 2000.0,
-    "stock": 100,
+    "stock": 0,
     "category": "Wants"
   },
   "P006": {
