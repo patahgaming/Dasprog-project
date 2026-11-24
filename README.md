@@ -142,6 +142,23 @@ disinkronkan ke PC (`2026-11-03`). Jika X100C mati lama/clock drift, set ulang l
 menu **System -> Date/Time**, karena event sidik jari hanya diterima bila jamnya
 masih dalam `jendela_detik` dari jam PC.
 
+#### Troubleshooting "log tidak masuk"
+
+1. **`Koneksi OK (0 log)` padahal mesin punya log** -> hampir pasti **COM key
+   salah**. Kalau `ArgComKey` tidak cocok, webserver X100C membalas **HTTP 200**
+   dengan XML **valid tapi kosong** (`<GetAttLogResponse></GetAttLogResponse>`),
+   jadi tidak ada error sama sekali. Cek `PAYGUARD_X100C_COM_KEY` di `.env`
+   (pabrik: `0`); bandingkan lewat `python fingerprint.py`.
+2. **Log ada tapi tap baru selalu ditolak** -> jam mesin **maju** lebih besar
+   dari `jendela_detik`, sehingga tanggal event ada di masa depan. Pesan
+   `Tidak ada sidik jari terbaca.` akan disertai keterangan `Jam X100C maju N
+   detik dari jam PC (...) padahal jendela_detik=...`. Sinkronkan jam mesin,
+   atau perbesar `PAYGUARD_X100C_JENDELA_DETIK` (konsekuensi: toleransi
+   anti-replay ikut melebar, karena keunikan event tetap dijaga
+   `data/finger_state.json`).
+3. **PIN mesin tidak ada di `users.json`** -> `Sidik jari belum terdaftar.
+   Hubungi admin.`; daftarkan lewat admin `7. Kelola Sidik Jari (X100C)`.
+
 PC memanggil webserver X100C dengan `POST /iWsService` dan perintah `GetAttLog`
 (`<GetAttLog><ArgComKey .../><Arg><PIN>All</PIN></Arg></GetAttLog>`). Implementasi
 memakai `socket` + `xml.etree.ElementTree` (stdlib, tanpa pip); detail di

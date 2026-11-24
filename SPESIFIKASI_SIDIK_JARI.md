@@ -179,6 +179,13 @@ verifikasi_sidik_jari(user, perangkat=None) -> (bool, dict|None)
     `Sidik jari tidak cocok.`.
   - `verifikasi_sidik_jari` untuk user tanpa `finger_id` -> print
     `Akun belum terdaftar sidik jari.`, `(False, None)`.
+  - Diagnosa jam (`pesan_tidak_terbaca`, read-only): kalau log terakhir di mesin
+    **bertanggal di masa depan** (> 2 detik dari jam PC), jam X100C pasti maju
+    sehingga tap baru ditolak `jendela_detik`; pesan di atas ditambah keterangan
+    `Jam X100C maju N detik dari jam PC (...) padahal jendela_detik=...
+    Sinkronkan jam mesin (Menu > System > Date/Time) atau perbesar
+    PAYGUARD_X100C_JENDELA_DETIK.` Selisih negatif tidak dilaporkan karena tidak
+    bisa dibedakan dari log yang memang sudah lama.
 - Event yang dipakai harus `tandai_kejadian` agar tidak bisa replay.
 
 ### 4.4 Demo `__main__`

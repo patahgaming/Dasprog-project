@@ -465,6 +465,10 @@ try:
         hasil["userinfo"] = fingerprint.get_user_info(sys.argv[3])
     elif aksi == "events":
         hasil["events"] = fingerprint.ambil_kejadian_baru(jendela_detik=30)
+    elif aksi == "pesan":
+        hasil["pesan"] = fingerprint.pesan_tidak_terbaca(jendela_detik=30)
+        diagnosa = fingerprint.ukur_selisih_jam()
+        hasil["selisih"] = None if diagnosa is None else round(diagnosa[0])
     elif aksi == "soap_mati":
         hasil["raw"] = fingerprint.kirim_soap(
             fingerprint.buat_xml("GetAttLog", {"PIN": "All"}, 0)
@@ -1149,6 +1153,34 @@ class TestMockPerangkat(DasarTest):
             self.assertNotIn("exception", data, msg=str(data))
             pin = [kejadian.get("PIN") for kejadian in data["events"]]
             self.assertEqual(pin, ["1001"], msg=f"event={data['events']!r}")
+
+    def test_pesan_tidak_terbaca_mendeteksi_jam_melenceng(self):
+        # jam mesin maju 53 detik -> event ditolak jendela_detik, tapi pesan
+        # harus menjelaskan selisih jamnya, bukan sekadar "tidak terbaca"
+        saat = datetime.now() + timedelta(seconds=53)
+        baris = [buat_baris_attlog("9", saat)]
+        with MockX100C(ambil_attlog=lambda: list(baris)) as mock:
+            self._konfigurasi_soap(mock, jendela_detik=30)
+            data = self.jalankan_driver(DRIVER_DEVICE, ["pesan"])
+        self.assertNotIn("exception", data, msg=str(data))
+        self.assertTrue(50 <= data["selisih"] <= 53, msg=str(data))
+        pesan = data["pesan"]
+        self.assertTrue(pesan.startswith("Tidak ada sidik jari terbaca."),
+                        msg=f"pesan={pesan!r}")
+        self.assertRegex(pesan, r"Jam X100C maju 5[0-3] detik",
+                         msg=f"pesan={pesan!r}")
+        self.assertIn("jendela_detik=30", pesan, msg=f"pesan={pesan!r}")
+        self.assertIn("Date/Time", pesan, msg=f"pesan={pesan!r}")
+
+    def test_pesan_tidak_terbaca_log_lama_tanpa_peringatan_jam(self):
+        # log terakhir 2 jam lalu = memang tidak ada tap baru, bukan clock drift
+        baris = [buat_baris_attlog("9", datetime.now() - timedelta(hours=2))]
+        with MockX100C(ambil_attlog=lambda: list(baris)) as mock:
+            self._konfigurasi_soap(mock, jendela_detik=30)
+            data = self.jalankan_driver(DRIVER_DEVICE, ["pesan"])
+        self.assertNotIn("exception", data, msg=str(data))
+        self.assertEqual(data["pesan"], "Tidak ada sidik jari terbaca.")
+        self.assertTrue(-7202 <= data["selisih"] <= -7199, msg=str(data))
 
     def test_soap_ke_host_mati_menghasilkan_oserror(self):
         self.tulis_perangkat({

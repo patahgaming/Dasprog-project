@@ -51,6 +51,7 @@ BATAS_STATE = 200
 FORMAT_WAKTU = '%Y-%m-%d %H:%M:%S'
 PESAN_GAGAL_KONEKSI = ('Perangkat X100C tidak terhubung. '
                        'Periksa kabel/jaringan dan konfigurasi.')
+PESAN_TIDAK_TERBACA = 'Tidak ada sidik jari terbaca.'
 
 
 def _baca_env(nama_file=None):
@@ -269,6 +270,67 @@ def tes_koneksi(perangkat=None):
                   ' (' + str(len(daftar_log)) + ' log).')
 
 
+def _format_selisih(selisih):
+    # "+53 detik" / "-2 menit 5 detik" untuk pesan diagnosa jam
+    tanda = '+' if selisih >= 0 else '-'
+    menit, detik = divmod(int(round(abs(selisih))), 60)
+    if menit == 0:
+        return tanda + str(detik) + ' detik'
+    return tanda + str(menit) + ' menit ' + str(detik) + ' detik'
+
+
+def ukur_selisih_jam(perangkat=None, daftar_log=None):
+    # bandingkan jam perangkat dengan jam PC memakai log terakhir mesin.
+    # return (selisih_detik, waktu_perangkat, waktu_pc) atau None kalau tidak
+    # ada log / perangkat tidak terhubung. Hanya diagnosa (read-only).
+    if perangkat is None:
+        perangkat = baca_perangkat()
+    if daftar_log is None:
+        try:
+            daftar_log = get_attlog(perangkat)
+        except (OSError, TimeoutError):
+            return None
+    terbaru = None
+    for event in daftar_log:
+        waktu = _waktu_kejadian(event.get('DateTime', ''))
+        if waktu is not None and (terbaru is None or waktu > terbaru):
+            terbaru = waktu
+    if terbaru is None:
+        return None
+    sekarang = datetime.now()
+    return ((terbaru - sekarang).total_seconds(), terbaru, sekarang)
+
+
+def pesan_tidak_terbaca(perangkat=None, jendela_detik=None,
+                        pesan_dasar=PESAN_TIDAK_TERBACA):
+    # pesan saat tidak ada tap yang lolos saringan. Kalau log terakhir
+    # bertanggal di MASA DEPAN, jam X100C pasti maju -> tap baru selalu
+    # ditolak jendela_detik. Selisih negatif tidak dipakai sebagai bukti
+    # karena tidak bisa dibedakan dari "tap-nya memang sudah lama".
+    if perangkat is None:
+        perangkat = baca_perangkat()
+    if jendela_detik is None:
+        jendela_detik = perangkat.get('jendela_detik',
+                                      PERANGKAT_DEFAULT['jendela_detik'])
+    jendela = _ke_float(jendela_detik, 30.0)
+
+    hasil = ukur_selisih_jam(perangkat)
+    if hasil is None:
+        return pesan_dasar
+    selisih, waktu_mesin, waktu_pc = hasil
+    if selisih <= 2.0:
+        # tidak ada log di masa depan (2 detik = toleransi pembulatan detik)
+        return pesan_dasar
+    return (pesan_dasar + ' Jam X100C maju ' +
+            _format_selisih(selisih).lstrip('+-') +
+            ' dari jam PC (log ' + waktu_mesin.strftime(FORMAT_WAKTU) +
+            ', PC ' + waktu_pc.strftime(FORMAT_WAKTU) +
+            ') padahal jendela_detik=' +
+            str(int(jendela) if jendela == int(jendela) else jendela) +
+            ' detik. Sinkronkan jam mesin (Menu > System > Date/Time) atau '
+            'perbesar PAYGUARD_X100C_JENDELA_DETIK.')
+
+
 def kunci_kejadian(event):
     # kunci unik event untuk dedupe/replay: "<pin>|<datetime>|<status>"
     return (str(event.get('PIN', '')).strip() + '|' +
@@ -378,7 +440,7 @@ def tunggu_sidik_jari(perangkat=None):
                 tandai_kejadian(event)
             return daftar[-1]
         time.sleep(0.5)
-    print('Tidak ada sidik jari terbaca.')
+    print(pesan_tidak_terbaca(perangkat))
     return None
 
 
@@ -431,7 +493,8 @@ def verifikasi_sidik_jari(user, perangkat=None):
     if ada_pin_lain:
         print('Sidik jari tidak cocok.')
     else:
-        print('Sidik jari tidak terbaca.')
+        print(pesan_tidak_terbaca(perangkat,
+                                  pesan_dasar='Sidik jari tidak terbaca.'))
     return False, None
 
 
@@ -454,8 +517,26 @@ if __name__ == '__main__':
             print(PESAN_GAGAL_KONEKSI)
             daftar_log = []
         print('Jumlah log terbaca: ' + str(len(daftar_log)))
+        if not daftar_log:
+            print('Catatan: 0 log bisa berarti mesin belum punya log, atau '
+                  'COM key salah (mesin membalas XML kosong tanpa error). '
+                  'Coba PAYGUARD_X100C_COM_KEY=0.')
         for kejadian in daftar_log[-5:]:
             print(' - ' + kunci_kejadian(kejadian))
+        diagnosa_jam = ukur_selisih_jam(perangkat_demo, daftar_log)
+        if diagnosa_jam is not None:
+            selisih_jam, waktu_mesin, _ = diagnosa_jam
+            print('Log terakhir X100C: ' + waktu_mesin.strftime(FORMAT_WAKTU))
+            jendela = _ke_float(perangkat_demo.get(
+                'jendela_detik', PERANGKAT_DEFAULT['jendela_detik']), 30.0)
+            if selisih_jam > jendela:
+                # tanggal di masa depan hanya mungkin kalau jam mesin maju
+                print('PERINGATAN: jam X100C maju ' +
+                      _format_selisih(selisih_jam).lstrip('+-') +
+                      ' dari jam PC, lebih besar dari jendela_detik (' +
+                      str(int(jendela)) + ' detik). Login sidik jari akan '
+                      'selalu gagal sampai jam mesin disinkronkan lewat '
+                      'Menu > System > Date/Time.')
     else:
         contoh = kejadian_simulasi('1001')
         print('Contoh event simulasi: ' + kunci_kejadian(contoh))
