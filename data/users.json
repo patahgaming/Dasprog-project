@@ -137,7 +137,7 @@
     "username": "pembeli",
     "pin_hash": "0eaa2f041f801918d639f1d263590339c58463da857227828f146fc20be5f910",
     "salt": "0f932cb47b11580b",
-    "balance": 0.0,
+    "balance": 10000000.0,
     "daily_limit": 500000.0,
     "role": "customer",
     "is_locked": false,

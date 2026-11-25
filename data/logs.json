@@ -190,5 +190,41 @@
     "username": "akun_blockir",
     "action": "ACCOUNT_LOCKED_BRUTEFORCE",
     "detail": ""
+  },
+  {
+    "time": "2026-11-25T18:10:47",
+    "username": "admin2",
+    "action": "LOGIN_SUCCESS",
+    "detail": ""
+  },
+  {
+    "time": "2026-11-25T18:11:09",
+    "username": "pembeli",
+    "action": "LOGIN_SUCCESS",
+    "detail": ""
+  },
+  {
+    "time": "2026-11-25T18:18:47",
+    "username": "admin2",
+    "action": "LOGIN_SUCCESS",
+    "detail": ""
+  },
+  {
+    "time": "2026-11-25T18:19:43",
+    "username": "admin",
+    "action": "TOPUP",
+    "detail": "pembeli:100"
+  },
+  {
+    "time": "2026-11-25T18:19:58",
+    "username": "admin",
+    "action": "TOPUP",
+    "detail": "pembeli:900"
+  },
+  {
+    "time": "2026-11-25T18:20:09",
+    "username": "admin",
+    "action": "TOPUP",
+    "detail": "pembeli:99000"
   }
 ]
