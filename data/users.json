@@ -7,8 +7,8 @@
     "daily_limit": 0.0,
     "role": "admin",
     "is_locked": false,
-    "failed_attempts": 0,
-    "finger_id": "",
+    "failed_attempts": 1,
+    "finger_id": "5",
     "transactions": []
   },
   "budi": {
@@ -86,10 +86,10 @@
     "salt": "2341cbc813b03c2b",
     "balance": 999150000.0,
     "daily_limit": 500000.0,
-    "role": "admin",
+    "role": "customer",
     "is_locked": false,
-    "failed_attempts": 0,
-    "finger_id": "11733",
+    "failed_attempts": 2,
+    "finger_id": "",
     "transactions": [
       {
         "id": "TRX-20261104000037",
@@ -130,6 +130,42 @@
     "role": "admin",
     "is_locked": false,
     "failed_attempts": 0,
+    "finger_id": "",
+    "transactions": []
+  },
+  "pembeli": {
+    "username": "pembeli",
+    "pin_hash": "0eaa2f041f801918d639f1d263590339c58463da857227828f146fc20be5f910",
+    "salt": "0f932cb47b11580b",
+    "balance": 0.0,
+    "daily_limit": 500000.0,
+    "role": "customer",
+    "is_locked": false,
+    "failed_attempts": 0,
+    "finger_id": "11733",
+    "transactions": []
+  },
+  "admin2": {
+    "username": "admin2",
+    "pin_hash": "a30475157dfd4205068c88cd77fc686a098909a7f3a875fbc50ac7ce8873ccc8",
+    "salt": "4ffddf21ae4d611c",
+    "balance": 0.0,
+    "daily_limit": 500000.0,
+    "role": "admin",
+    "is_locked": false,
+    "failed_attempts": 0,
+    "finger_id": "9",
+    "transactions": []
+  },
+  "akun_blockir": {
+    "username": "akun_blockir",
+    "pin_hash": "8994b2ca5ee25579d6fe3907a3071ebd521d63a2975c4aa781dd2fb6d29c21a9",
+    "salt": "0c8396558dd698e5",
+    "balance": 0.0,
+    "daily_limit": 500000.0,
+    "role": "customer",
+    "is_locked": true,
+    "failed_attempts": 3,
     "finger_id": "",
     "transactions": []
   }

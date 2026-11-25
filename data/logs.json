@@ -112,5 +112,83 @@
     "username": "Budhea",
     "action": "LOGIN_SUCCESS",
     "detail": ""
+  },
+  {
+    "time": "2026-11-24T22:03:12",
+    "username": "admin",
+    "action": "LOGOUT",
+    "detail": ""
+  },
+  {
+    "time": "2026-11-25T15:35:05",
+    "username": "pembeli",
+    "action": "REGISTER",
+    "detail": "akun baru"
+  },
+  {
+    "time": "2026-11-25T15:35:24",
+    "username": "pembeli",
+    "action": "LOGIN_SUCCESS",
+    "detail": ""
+  },
+  {
+    "time": "2026-11-25T15:38:58",
+    "username": "admin2",
+    "action": "REGISTER",
+    "detail": "akun baru"
+  },
+  {
+    "time": "2026-11-25T15:39:57",
+    "username": "admin2",
+    "action": "LOGIN_SUCCESS",
+    "detail": ""
+  },
+  {
+    "time": "2026-11-25T15:41:58",
+    "username": "admin2",
+    "action": "LOGIN_SUCCESS",
+    "detail": ""
+  },
+  {
+    "time": "2026-11-25T15:42:29",
+    "username": "admin",
+    "action": "FINGER_ENROLL",
+    "detail": "admin2:9"
+  },
+  {
+    "time": "2026-11-25T17:26:04",
+    "username": "admin2",
+    "action": "LOGIN_SUCCESS",
+    "detail": ""
+  },
+  {
+    "time": "2026-11-25T17:26:08",
+    "username": "admin",
+    "action": "LOGOUT",
+    "detail": ""
+  },
+  {
+    "time": "2026-11-25T17:26:43",
+    "username": "admin2",
+    "action": "LOGIN_SUCCESS",
+    "detail": ""
+  },
+  {
+    "time": "2026-11-25T17:27:57",
+    "username": "admin",
+    "action": "UPDATE_PRODUCT",
+    "detail": "P001"
+  },
+  {
+    "time": "2026-11-25T17:28:55",
+    "username": "akun_blockir",
+    "action": "REGISTER",
+    "detail": "akun baru"
+  },
+  {
+    "time": "2026-11-25T17:29:41",
+    "username": "akun_blockir",
+    "action": "ACCOUNT_LOCKED_BRUTEFORCE",
+    "detail": ""
   }
 ]

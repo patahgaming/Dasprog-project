@@ -61,7 +61,7 @@ def BacaKeranjangTertahan():
 
 def SimpanKeranjangTertahan(daftar):
     # simpan daftar keranjang tertahan secara atomic lewat data_manager
-    tulis_json(KERANJANG_FILE, daftar)
+    tulis_json(KERANJANG_FILE, daftar) 
 
 
 def CariKeranjangTertahan(username):
